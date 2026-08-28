@@ -3,8 +3,80 @@
 Assign severity by answering *"which of these two is worse?"* — never by picking a number on a
 scale.
 
-> **Status: phase 1 in progress.** Usage documentation lands at the end of this phase. The sections
-> below are settled decisions rather than descriptions of code, which is why they are here first.
+## Using it
+
+```bash
+cj init   --store .cj-store
+cj load   --store .cj-store --findings findings.yaml
+cj compare --store .cj-store --rater you        # the comparison loop
+cj status --store .cj-store                     # progress and measured costs
+cj fit    --store .cj-store                     # the scale
+cj cuts   --store .cj-store --critical-high F-01:F-03 \
+                            --high-medium  F-03:F-02 \
+                            --medium-low   F-02:F-05
+cj bands  --store .cj-store                     # each finding's band
+cj export --store .cj-store --out severity.json
+```
+
+In the comparison loop: `←`/`a` and `→`/`d` choose, `t` marks a pair too close to call, `u` undoes
+the last judgment, `q` quits. Nothing needs saving — every judgment is on disk before the next pair
+appears, so quitting and resuming is indistinguishable from never having stopped.
+
+### What a findings document looks like
+
+```yaml
+findings:
+  - id: F-01
+    call_ref: CALL-02
+    observation: The agent confirmed a completed seat exchange before the tool ran.
+    evidence:
+      - "line 42: I've gone ahead and moved you to row C."
+      - "line 51: exchange_seats -> ERROR ineligible_after_doors"
+    consequence: The caller left believing they had different seats; they do not.
+    detectable_by: assert      # assert | judge | human
+    tier: defect               # defect | question
+```
+
+`evidence` is a **list** so fragments from different points in a call stay visibly separate. `tier:
+question` entries are excluded from scoring and the count is reported — they are non-defects with no
+consequence to compare against, and rating one would put it into the anchor set where it would
+distort every later placement. A `severity` field here is **rejected**: severity is this tool's
+output, joined back by `id`.
+
+### What it produces
+
+A run over five findings, ten comparisons:
+
+```
+finding              theta   app    W    L    T
+F-01                2.1416     4    4    0    0
+F-03                0.9481     4    3    1    0
+F-02               -0.0000     4    2    2    0
+F-05               -0.9481     4    1    3    0
+F-04               -2.1416     4    0    4    0
+```
+
+Note `F-01` won every comparison and `F-04` lost every one, and both still have finite values. That
+is the regularisation below; without it those two would have run away to infinity, and they are
+precisely the Critical and Low findings whose bands matter most.
+
+The severity file names the run it came from, so a value can always be traced back:
+
+```json
+{
+  "schema_version": "1",
+  "anchor_set_version": "1",
+  "comparison_log_hash": "01ab8a59dbd7a002…",
+  "severities": [{ "id": "F-01", "severity": "critical", "theta": 2.14 }],
+  "unplaced": []
+}
+```
+
+`unplaced` lists findings nobody compared. They get no band rather than a defaulted one: banding
+them would report the prior as though it were a judgment.
+
+---
+
 
 ## Why pairwise
 

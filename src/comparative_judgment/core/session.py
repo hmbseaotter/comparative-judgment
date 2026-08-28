@@ -28,11 +28,12 @@ from dataclasses import dataclass
 from typing import Final
 
 from comparative_judgment.core import bands, pairing
-from comparative_judgment.core.errors import CutError
+from comparative_judgment.core.errors import CutError, UnknownItemError
 from comparative_judgment.core.fit import FitResult, fit
 from comparative_judgment.core.models import (
     BandAssignment,
     Comparison,
+    Cut,
     Estimate,
     Finding,
     Outcome,
@@ -101,14 +102,26 @@ class Session:
     def next_pair(self) -> PairForReview | None:
         """The next comparison to put in front of the rater, or ``None`` when done.
 
+        Two modes, chosen by whether cuts exist yet. Before them, the goal is a
+        scale good enough to draw three boundaries on, so every item works toward
+        an appearance target. After them, the goal is only which of four bands an
+        item falls in — exact rank is precision that gets discarded — so a new
+        finding is compared against anchors near the boundary it sits closest to
+        and is done in about three comparisons rather than about nine.
+
         Derived, not stored. Two calls with no judgment between them return the
         same pair, and so does a call after a restart.
         """
         estimates = self.estimates()
-        chosen = pairing.next_bootstrap_pair(
-            estimates,
-            target=self._target,
-            already_seen=pairing.seen_pairs(self._store.active_comparisons()),
+        cuts = self._store.cuts()
+        chosen = (
+            self._placement_pair(estimates, cuts)
+            if cuts
+            else pairing.next_bootstrap_pair(
+                estimates,
+                target=self._target,
+                already_seen=pairing.seen_pairs(self._store.active_comparisons()),
+            )
         )
         if chosen is None:
             return None
@@ -124,6 +137,40 @@ class Session:
             appearances_left=appearances.get(left_id, 0),
             appearances_right=appearances.get(right_id, 0),
         )
+
+    def _placement_pair(
+        self, estimates: tuple[Estimate, ...], cuts: tuple[Cut, ...]
+    ) -> tuple[str, str] | None:
+        """Place whichever admitted finding is still short of its placement quota.
+
+        Anchors are skipped: they define the boundaries, so they are already
+        placed by construction. Items are taken in id order so a resumed session
+        picks up exactly where it left off.
+        """
+        anchors = pairing.cut_anchor_ids(cuts)
+        theta = {e.finding_id: e.theta for e in estimates}
+        try:
+            cut_values = bands.thresholds(cuts, theta)
+        except (CutError, UnknownItemError):
+            # A boundary that no longer means anything cannot guide placement.
+            # Surfacing it belongs to `place()`, which reports it by name.
+            return None
+
+        for estimate in sorted(estimates, key=lambda e: e.finding_id):
+            if estimate.finding_id in anchors:
+                continue
+            if estimate.appearances >= pairing.PLACEMENT_COMPARISONS:
+                continue
+            chosen = pairing.next_placement_pair(
+                estimate.finding_id,
+                estimates=estimates,
+                thresholds=cut_values,
+                anchors=anchors,
+                comparisons_made=estimate.appearances,
+            )
+            if chosen is not None:
+                return chosen
+        return None
 
     def record(self, outcome: Outcome) -> Comparison:
         """Record a judgment on the pair :meth:`next_pair` would return.

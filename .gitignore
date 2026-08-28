@@ -5,6 +5,12 @@
 .cj-store/
 store/
 
+# Credentials. This tool needs none -- it makes no network request of any kind
+# -- but "this repo has no secrets" is the sort of statement that stops being
+# true quietly, and the entry costs one line. The global pre-commit guard is the
+# backstop; this is the primary control.
+.env
+
 # Python
 __pycache__/
 *.pyc

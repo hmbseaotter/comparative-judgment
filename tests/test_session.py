@@ -250,3 +250,80 @@ class TestPlacement:
         assert len(placement.assignments) == 6
         assert placement.unplaced == ()
         assert len(placement.thresholds) == 3
+
+
+class TestPlacementMode:
+    """Second batch onward: place against cuts, do not re-rank.
+
+    This is the scaling claim made concrete. Ranking a new finding among n
+    anchors costs about log2(n) comparisons; locating it against three cuts costs
+    about three, and its exact rank was never used for anything.
+    """
+
+    def _bootstrapped(self, tmp_path: Path) -> Session:
+        store = Store.create(tmp_path / "s", clock=_fixed_clock)
+        loaded = parse_findings(_document(6))
+        store.put_findings(loaded.admitted)
+        store.put_load_summary(loaded.excluded_questions)
+        session = Session(store, rater_id="r", appearance_target=4)
+        while session.next_pair() is not None:
+            session.record(Outcome.LEFT)
+        ranked = [e.finding_id for e in session._fit().ranked()]
+        store.put_cuts(
+            [
+                Cut(CutName.CRITICAL_HIGH, ranked[0], ranked[1]),
+                Cut(CutName.HIGH_MEDIUM, ranked[2], ranked[3]),
+                Cut(CutName.MEDIUM_LOW, ranked[4], ranked[5]),
+            ]
+        )
+        return session
+
+    def test_a_bootstrapped_batch_needs_no_further_comparisons(self, tmp_path: Path) -> None:
+        session = self._bootstrapped(tmp_path)
+        assert session.next_pair() is None
+
+    def test_a_new_finding_is_placed_in_at_most_four_comparisons(self, tmp_path: Path) -> None:
+        session = self._bootstrapped(tmp_path)
+        before = session.progress().comparisons_spent
+
+        existing = list(session._store.findings())
+        newcomer = parse_findings(
+            "findings:\n"
+            "  - id: F-NEW\n"
+            "    observation: A newly reviewed call had the same problem.\n"
+            "    evidence: ['line 7: fragment']\n"
+            "    consequence: The caller is out of pocket.\n"
+            "    detectable_by: judge\n"
+            "    tier: defect"
+        ).admitted
+        session._store.put_findings([*existing, *newcomer])
+        session._invalidate()
+
+        spent = 0
+        while (pair := session.next_pair()) is not None and spent < 20:
+            assert "F-NEW" in (pair.left.id, pair.right.id)
+            session.record(Outcome.RIGHT)
+            spent += 1
+
+        assert spent <= 4, f"placement should cost about three comparisons, took {spent}"
+        assert session.progress().comparisons_spent == before + spent
+
+    def test_the_new_finding_receives_a_band(self, tmp_path: Path) -> None:
+        session = self._bootstrapped(tmp_path)
+        existing = list(session._store.findings())
+        newcomer = parse_findings(
+            "findings:\n"
+            "  - id: F-NEW\n"
+            "    observation: Another call, same failure.\n"
+            "    evidence: ['line 7: fragment']\n"
+            "    consequence: Money that will not arrive.\n"
+            "    detectable_by: judge\n"
+            "    tier: defect"
+        ).admitted
+        session._store.put_findings([*existing, *newcomer])
+        session._invalidate()
+        while session.next_pair() is not None:
+            session.record(Outcome.LEFT)
+
+        placed = {a.finding_id for a in session.place().assignments}
+        assert "F-NEW" in placed

@@ -21,6 +21,7 @@ document this store reads from, not of the store itself.
 
 from __future__ import annotations
 
+import hashlib
 import json
 from collections.abc import Callable, Iterable, Sequence
 from datetime import UTC, datetime
@@ -406,6 +407,18 @@ class Store:
                 msg = f"{where}: unknown log entry kind {kind!r}"
                 raise StoreSchemaError(msg)
         return tuple(out)
+
+    def log_hash(self) -> str:
+        """A content hash of the comparison log.
+
+        Named in every severity file so a result can be tied to the exact set of
+        judgments that produced it. Hashing the raw file rather than the parsed
+        records is deliberate: it covers retractions and ordering too, so any
+        change to the history changes the hash even when the active comparisons
+        are unchanged.
+        """
+        raw = (self.path / LOG_FILE).read_bytes() if (self.path / LOG_FILE).is_file() else b""
+        return hashlib.sha256(raw).hexdigest()
 
     def active_comparisons(self) -> tuple[Comparison, ...]:
         """Comparisons with retractions applied.
