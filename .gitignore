@@ -1,0 +1,19 @@
+# Comparison/findings store. There is no implicit store path -- the caller always
+# supplies one (D9) -- but this is the conventional location used by the docs and
+# examples, ignored so that following them cannot produce a file that quietly
+# wants committing. The store holds findings text, which may be sensitive.
+.cj-store/
+store/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+.venv/
+venv/
+
+# Tooling caches
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
