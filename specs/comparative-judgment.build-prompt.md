@@ -3,7 +3,7 @@
 > Hand this file to a building agent (a fresh Claude Code session, Cursor, Aider, …). It targets
 > **phase 1 only**. The full target is `specs/comparative-judgment.md`; the reasoning behind every
 > settled fork, including one that overturns the source design, is in
-> `specs/comparative-judgment.decisions.md` (D1–D10).
+> `specs/comparative-judgment.decisions.md` (D1–D13).
 
 ## Recommended build-time session settings
 - **Model:** Claude Opus 5. **Effort:** `xhigh` (Extra).
@@ -15,7 +15,7 @@
 
 ## Read first
 1. `specs/comparative-judgment.md` — the whole target.
-2. `specs/comparative-judgment.decisions.md` — D1–D10. **Read D2 carefully**: it explains why the
+2. `specs/comparative-judgment.decisions.md` — D1–D13. **Read D2 carefully**: it explains why the
    source design's merge sort was rejected, and repeating that reasoning back is a good check that
    you have understood the data model.
 3. The "Not checked" section of that record — six things this specification did *not* verify.
@@ -69,16 +69,25 @@ caller supplied.
    Comparisons carry both item ids, the outcome, rater id, session id and a UTC timestamp. The rater
    id is present from the first commit even though there is one rater (D4): retrofitting it later
    leaves every existing comparison unattributable.
-2. **Bradley-Terry fit** by maximum likelihood (the standard MM iteration), with per-item standard
-   errors from the Fisher information. **Determinism must be engineered, not hoped for**: fixed
-   convergence tolerance, fixed iteration cap, deterministic item ordering, deterministic
-   tie-breaking. Non-convergence within the cap reports failure and emits nothing.
+2. **Regularised Bradley-Terry fit** by maximum likelihood (the standard MM iteration), with
+   per-item standard errors from the Fisher information. **Determinism must be engineered, not hoped
+   for**: fixed convergence tolerance, fixed iteration cap, deterministic item ordering,
+   deterministic tie-breaking. Non-convergence within the cap reports failure and emits nothing.
+   **Regularisation is required, not optional (D13):** apply a symmetric prior of λ = 0.5
+   pseudo-wins and λ = 0.5 pseudo-losses per item against a virtual opponent at the scale origin.
+   Without it the estimate diverges for any item that wins or loses *all* its comparisons —
+   guaranteed at both ends of a severity scale, and the failure is silent: the iteration drifts to
+   its cap and returns large arbitrary numbers that look like data.
 3. **Session API** — `next_pair`, `record`, `undo`, `progress`, `estimates`. The only surface any
    front end may touch.
 4. **Band cuts, calibration and placement.** Exactly three absolute judgments (Critical/High,
    High/Medium, Medium/Low), each made with findings visible on both sides. At least the top cut is
    tied to a written consequence definition, because a pairwise scale is *relative with no origin* —
    the ordering can be internally perfect while the whole set sits a band too high.
+   **A cut is stored as the ordered pair of findings either side of it (D12)**, never as a
+   scale-value threshold, and its threshold is recomputed as their midpoint at each fit. A stored
+   number would mean something only relative to the fit that produced it. If a refit inverts an
+   anchor pair, report that cut by name rather than re-ordering it silently.
 5. **YAML findings reader and severity writer.** Each findings entry carries `id`, `observation`,
    `evidence` (a **list** — fragments stay separate), `consequence`, `detectable_by` and `tier`.
    **Entries with `tier: question` are excluded** from the batch, the fit and the anchor set, with
@@ -102,6 +111,9 @@ caller supplied.
 9. **Simple heuristic pairing** — pair items whose current estimates are close. This is what makes
    the ~10-appearances estimate plausible rather than optimistic. Adaptive information-maximising
    selection is phase 3; do not build it now.
+   **The cold-start phase ends when every admitted item reaches a configured appearance target,
+   default 10 (D11)**, with per-item progress shown; the rater may stop earlier or continue. That
+   target IS the spec's own estimate, so the first bootstrap validates or refutes it.
 
 **Deferred by choice:** the connectivity check moves to phase 2 — phase 1 already refuses
 cross-component comparisons, and a single batch is connected by construction, so the diagnostic
@@ -136,6 +148,13 @@ Stack: Python 3.12+, `uv` with a committed lockfile pinning **exact** versions (
 - [ ] A tie is recorded, excluded from the fit, and counted in the tie rate.
 - [ ] A deliberately intransitive triad (A>B, B>C, C>A) is accepted without error and raises the
       misfit statistic for those items.
+- [ ] An item winning every one of its comparisons receives a finite scale value, and the fit
+      converges within its cap rather than reaching it.
+- [ ] A cut round-trips as an ordered pair of findings, with its threshold recomputed from current
+      scale values rather than stored as a number.
+- [ ] A refit that inverts a cut's anchor pair reports that cut by name.
+- [ ] A batch reports per-item appearance progress and completes only when every admitted item
+      reaches the configured target.
 - [ ] Two batches with no bridging comparisons are reported as separate components; no
       cross-component band comparison is emitted.
 - [ ] A fit forced past its iteration cap reports non-convergence and emits no values.
@@ -169,8 +188,8 @@ Stack: Python 3.12+, `uv` with a committed lockfile pinning **exact** versions (
 ---
 
 ## Reporting back
-- Append any fork you resolve to `specs/comparative-judgment.decisions.md` from **D11**, in the same
-  shape (fork, options, decision, why, consequences) — and each entry from D11 onward must end with a
+- Append any fork you resolve to `specs/comparative-judgment.decisions.md` from **D14**, in the same
+  shape (fork, options, decision, why, consequences) — and each entry from D14 onward must end with a
   `**Rule** — …` line naming what enforces it: a test, a scan, or explicitly *judgment, not
   checkable*.
 - Record architectural calls in the spec's **decisions made** block.

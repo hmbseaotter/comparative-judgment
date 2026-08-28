@@ -3,7 +3,7 @@
 - **Project:** comparative-judgment — severity scoring by pairwise comparison
 - **Identity:** A standalone tool that lets a rater assign defensible severity to findings by answering only "which of these two is worse?", never by picking a number on a scale.
 - **Spec:** `specs/comparative-judgment.md`
-- **Status:** D1–D10 recorded. D1–D8 from the /specify session of 2026-08-28; D9 settled at emit, resolving a contradiction the linter surfaced.
+- **Status:** D1–D13 recorded. D11–D13 were taken at the phase-1 plan gate. D1–D8 from the /specify session of 2026-08-28; D9 settled at emit, resolving a contradiction the linter surfaced.
 - **Legend:** ✅ decided · 🔶 open / revisit · ⏭️ deferred to a later phase
 
 <!-- rules-required-from: D9 -->
@@ -95,7 +95,7 @@ Human effort is comparable: at ~10 appearances per item, 50 findings costs ~250 
 
 **Decision ✅** — **(A).**
 
-**Why** — The field costs essentially nothing, and its absence is unfixable: retrofitting it later leaves every already-recorded comparison unattributable. (C) also forecloses a stated goal — the source methodology treats reviewer disagreement as a primary source of insight, having measured two independent reviewers disagreeing on roughly 21 ratings. (B) builds analysis machinery before a second rater exists.
+**Why** — The field costs essentially nothing, and its absence is unfixable: retrofitting it later leaves every already-recorded comparison unattributable. (C) also forecloses a stated goal — the source methodology treats reviewer disagreement as a primary source of insight rather than noise, because disagreement localises exactly where a scale is underspecified. No disagreement rate is quoted here: a figure from one reviewer pair on one corpus in one session cannot be generalised, and the argument rests on what disagreement *tells you*, not on how often it happened to occur. (B) builds analysis machinery before a second rater exists.
 
 **Consequences / caveats** — Same shape as D2: pay the cheap structural cost now, defer the machinery. Multi-rater analysis lands in phase 3, over data that already supports it.
 
@@ -206,7 +206,66 @@ Severity ownership went to a separate file because the tool must never mutate a 
 
 ---
 
-## Not checked — as of 0.2.0 @ D10
+## D11 — What ends the cold-start comparison phase
+
+**Fork:** The spec said how pairs are selected before cuts exist, and put the confidence-based stopping rule in phase 3 — so phase 1 had no stated condition for when the bootstrap is done.
+
+**Options considered**
+- **(A) Target appearances per item (default 10), rater may stop early or continue.**
+- **(B) Standard-error threshold** — stop when every item is estimated precisely enough.
+- **(C) Rater-driven only.**
+- **(D) Fixed total comparison budget.**
+
+**Decision ✅** — **(A).** Progress is shown per item against the target; the phase completes when every admitted item reaches it.
+
+**Why** — (B) is phase 3's confidence rule arriving early, and phase 3 was deferred precisely because its benefit appears at 1,000 findings rather than 70; it also makes session length unpredictable, which matters when a rater is budgeting a sitting. (C) offers no guidance at the moment guidance is most useful, and a rater who stops early leaves the fit under-determined with nothing saying so. (D) spends comparisons evenly rather than where they are needed. (A) additionally makes the target *be* the spec's own ~10 estimate, so the first bootstrap validates or refutes assumption 3 rather than leaving it untested.
+
+**Consequences / caveats** — The target is a default, not a floor: the rater overrides in both directions, and the measured appearances-per-item figure (D8) is what says whether 10 was right.
+
+**Rule** — Acceptance criterion: a batch reports per-item appearance progress, and completes only when every admitted item reaches the configured target. Enforced by test.
+
+---
+
+## D12 — How a band cut is represented
+
+**Fork:** A cut could be a scale-value threshold or a position between two findings. This decides whether bands stay stable when the scale is re-fitted.
+
+**Options considered**
+- **(A) The ordered pair of findings either side of the line; threshold recomputed as their midpoint at each fit.**
+- **(B) A fixed scale-value threshold captured when the cut is set.**
+- **(C) Threshold, with band assignments frozen at first assignment.**
+
+**Decision ✅** — **(A).**
+
+**Why** — A pairwise scale has no absolute origin, so a stored number means something only relative to the fit that produced it; after a refit the same threshold sits somewhere subtly different, and items cross it for reasons the rater never judged (B). (A) preserves the *meaning* of the judgment — "the boundary sits between this finding and that one" — which is what the rater actually decided, and it literally implements the source design's requirement that each cut be made with the findings on both sides visible: the cut **is** those findings. Items whose relation to the two anchors genuinely changed do move bands, which is honest rather than silent.
+
+**Consequences / caveats** — A refit can invert an anchor pair, meaning the scale changed materially in that region; that is reported rather than silently re-sorted, and a human should look. This interacts with D2's freeze-and-propose rule: the assignment is frozen, and the recomputed threshold is what a proposed revision is measured against.
+
+**Rule** — Acceptance criterion: a cut round-trips as an anchor pair and its threshold is recomputed from current scale values; an inverted anchor pair after a refit is reported by name. Enforced by test.
+
+---
+
+## D13 — Regularised Bradley-Terry
+
+**Fork:** The maximum likelihood estimate diverges for any item that wins or loses *all* its comparisons. On a severity scale this is guaranteed, not exceptional: the most severe finding beats everything it meets and the least severe loses everything.
+
+**Options considered**
+- **(A) Small symmetric prior — λ pseudo-wins and λ pseudo-losses per item against a virtual opponent at the scale origin.**
+- **(B) Detect and report** — refuse to emit values for unbounded items.
+- **(C) Force extra comparisons** against mid-scale items until the item wins or loses one.
+- **(D) Bounded iteration** — cap and use whatever value is reached.
+
+**Decision ✅** — **(A)**, with λ = 0.5 as a declared constant.
+
+**Why** — This is not an edge case to defend against but a certainty to design for, and it bites precisely at the Critical and Low ends whose bands matter most. Identifiability requires the comparison digraph to be *strongly* connected, not merely connected. (D) is the dangerous option: the iteration drifts to its cap and returns large arbitrary numbers that look like data, making the result depend on the cap rather than the judgments — satisfying the reproducibility requirement in letter while violating it in spirit. (B) is honest but declines to band exactly the findings the tool exists to rank, and the rater cannot fix it because the worst finding genuinely does lose to everything. (C) has no honest exit condition for the same reason. (A) guarantees finite estimates, converges, is fully deterministic, and its strength is a documented constant rather than a hidden fudge.
+
+**Consequences / caveats** — The scale is slightly compressed at the extremes, by a bounded amount. That matters for reporting exact θ values and not at all for which side of a cut an item falls, which is the only thing severity output depends on. λ must be stated in the documentation, not buried in the fit.
+
+**Rule** — Acceptance criterion: an item that wins every one of its comparisons receives a finite scale value and the fit converges within its iteration cap rather than reaching it. Enforced by test.
+
+---
+
+## Not checked — as of 0.3.0 @ D13
 
 - **Bradley-Terry convergence behaviour was reasoned about, not tested.** The MM iteration is standard and convergent for connected graphs, but the interaction between the deterministic-ordering requirement and floating-point summation order has not been examined. The byte-identical-refit criterion is what will surface it.
 - **`textual` was assumed suitable and not evaluated** against the specific need for stable side-by-side panes with single-keypress capture and undo.
@@ -219,8 +278,8 @@ Severity ownership went to a separate file because the tool must never mutate a 
 
 ## Document status
 
-Decisions **D1–D10** recorded. The most consequential is **D2**, which overturns the source design's central algorithmic choice; **D5** additionally settles a gap in a second project's specification, which must be amended to match.
+Decisions **D1–D13** recorded. The most consequential is **D2**, which overturns the source design's central algorithmic choice; **D5** additionally settles a gap in a second project's specification, which must be amended to match.
 
 Spec: `specs/comparative-judgment.md`. Build prompt: `specs/comparative-judgment.build-prompt.md` (phase 1).
 
-Any new fork encountered during the build is appended here in the same shape, and from **D9** onward each entry ends with a `**Rule**` line naming what enforces it. Numbering continues from **D11**.
+Any new fork encountered during the build is appended here in the same shape, and from **D9** onward each entry ends with a `**Rule**` line naming what enforces it. Numbering continues from **D14**.

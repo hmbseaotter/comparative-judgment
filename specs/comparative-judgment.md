@@ -1,7 +1,7 @@
 # specification: comparative-judgment — severity scoring by pairwise comparison
 
 ## metadata
-- Spec version: 0.2.0
+- Spec version: 0.3.0
 - Status: DRAFT
 - Last updated: 2026-08-28
 - Author(s): Saso Gale
@@ -9,7 +9,7 @@
 - Build class: build-required
 - Role: n/a — a scoring utility; no persona sharpens it. Its one stance-like property is that it never asks for a number, only for a comparison, and that is a requirement rather than a voice.
 - Produced by: /specify @ f72b756
-- Last swept: 2026-08-28 @ 0.2.0 @ D10
+- Last swept: 2026-08-28 @ 0.3.0 @ D13
 - Artifacts land in: the `comparative-judgment` repository root
 - Visibility: public (currently private, flipped when ready). The store path is always supplied by the caller — there is no implicit fallback — but the conventional location used by the documentation and examples is gitignored, so following the docs cannot cause an accidental commit. A general-purpose severity tool will be pointed at real production findings by someone, and a committing default is a trap.
 - Decision record: `specs/comparative-judgment.decisions.md`
@@ -97,11 +97,14 @@ Persistent by design — the comparison log *is* the product, and the ordering i
 
 ### event-driven (WHEN — triggered by an action)
 - WHEN [P1] the fit is run over an unchanged comparison log, the system SHALL produce identical scale values, standard errors and bands, using a fixed convergence tolerance, a fixed iteration cap and a deterministic item ordering.
+- WHEN [P1] the fit is run, the system SHALL apply a symmetric prior of λ pseudo-wins and λ pseudo-losses per item (λ = 0.5) against a virtual opponent at the scale origin, so that an item winning or losing all of its comparisons still receives a finite scale value, and SHALL state λ in its documentation rather than only in code.
 - WHEN [P1] a rater records a comparison, the system SHALL persist it before presenting the next pair.
 - WHEN [P1] a rater retracts a comparison, the system SHALL append a retraction record and SHALL NOT delete the original.
 - WHEN [P1] a finding's content hash differs from the stored hash for its identifier, the system SHALL create a new item and SHALL retain prior comparisons against the previous version.
 - WHEN [P1] the comparison graph contains more than one connected component, the system SHALL name the components and SHALL NOT report scale values as comparable across them.
 - WHEN [P1] band cuts are set, the system SHALL require exactly three absolute judgments and SHALL display findings on both sides of each cut.
+- WHEN [P1] a cut is stored, the system SHALL store it as the ordered pair of findings either side of it, and SHALL derive its threshold as the midpoint of those two findings' current scale values at each fit.
+- WHEN [P1] every admitted item has reached the configured appearance target, the system SHALL report the cold-start phase complete, while permitting the rater to stop earlier or continue further.
 - WHEN [P1] a severity file is written, the system SHALL record the run identifier, the anchor-set version and the hash of the comparison log it was computed from.
 - WHEN [P1] a session is resumed, the system SHALL restore the exact position in the batch and SHALL report comparisons already spent.
 - WHEN [P2] anchors are imported from another store, the system SHALL report how many comparisons bridge the imported set to the existing one.
@@ -109,13 +112,14 @@ Persistent by design — the comparison log *is* the product, and the ordering i
 ### state-driven (WHILE — true for the duration of a state)
 - WHILE [P1] a comparison session is running, the system SHALL display comparisons spent and an estimate of comparisons remaining.
 - WHILE [P1] placing a finding against established cuts, the system SHALL select pairs by proximity to a cut rather than by position in a full ordering.
-- WHILE [P1] no cuts have been established, the system SHALL select pairs so as to produce a total order over the current batch.
+- WHILE [P1] no cuts have been established, the system SHALL select pairs so as to produce a total order over the current batch, targeting a configured number of appearances per item (default 10) and reporting each item's progress against it.
 - WHILE [P2] reporting diagnostics, the system SHALL emit per-item standard errors, misfit statistics and the tie rate.
 - WHILE [P1] reporting progress for a batch, the system SHALL report the mean comparisons spent per finding placed and the mean appearances per item, so the cost model's own estimates are measured in use rather than assumed.
 
 ### unwanted behavior (IF — error handling)
 - IF [P1] a rater marks a pair as too close to call, the system SHALL record a tie, SHALL exclude it from the fit, and SHALL count it toward the reported tie rate.
 - IF [P1] the fit does not converge within its iteration cap, the system SHALL report non-convergence and SHALL NOT emit scale values.
+- IF [P1] a fit inverts a cut's anchor pair, the system SHALL report that cut by name and SHALL NOT silently re-order it.
 - IF [P1] a finding lacks `id`, `observation` or `consequence` text, the system SHALL refuse to admit it to a batch and SHALL name the finding.
 - IF [P1] a finding's `tier` is `question`, the system SHALL exclude it from the batch, from the fit and from the anchor set, and SHALL report how many were excluded.
 - IF [P1] a store is opened whose schema version is unrecognised, the system SHALL refuse to write and SHALL report the version mismatch.
@@ -164,6 +168,10 @@ Persistent by design — the comparison log *is* the product, and the ordering i
 - [ ] [P1] A retracted comparison is absent from the fit while its record remains present in the log.
 - [ ] [P1] A tie is recorded, excluded from the fit, and counted in the tie rate.
 - [ ] [P1] A deliberately intransitive triad (A>B, B>C, C>A) is accepted without error, and raises the misfit statistic for those items.
+- [ ] [P1] An item that wins every one of its comparisons receives a finite scale value, and the fit converges within its iteration cap rather than reaching it.
+- [ ] [P1] A cut round-trips as an ordered pair of findings, and its threshold is recomputed from current scale values rather than stored as a number.
+- [ ] [P1] A refit that inverts a cut's anchor pair reports that cut by name.
+- [ ] [P1] A batch reports per-item appearance progress and completes only when every admitted item reaches the configured target.
 - [ ] [P1] Two batches with no bridging comparisons are reported as separate components, and no cross-component band comparison is emitted.
 - [ ] [P1] A fit forced past its iteration cap reports non-convergence and emits no values.
 - [ ] [P1] A finding missing `id`, observation or consequence text is refused by name.
@@ -238,5 +246,6 @@ n/a (build-required — see the build prompt)
 ---
 
 ## changelog
+- 0.3.0 (2026-08-28): three decisions taken at the phase-1 plan gate written in as requirements — the cold-start stopping condition (D11), cuts stored as anchor pairs rather than thresholds (D12), and a regularised Bradley-Terry fit (D13). D13 is not a refinement: without it the estimate diverges for any item winning or losing all its comparisons, which on a severity scale is guaranteed at both ends.
 - 0.2.0 (2026-08-28): findings schema enumerated to match the consuming harness's spec, and `tier: question` entries excluded from batches, the fit and the anchor set (D10). Found by executing D9's own cross-repository check rather than by review.
 - 0.1.0 (2026-08-28): initial draft. 7 decisions recorded; the source design's merge-sort bootstrap replaced with Bradley-Terry after the sort was found structurally unable to deliver the cycle capture that design calls its primary output.
