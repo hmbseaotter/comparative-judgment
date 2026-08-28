@@ -1,7 +1,7 @@
 # specification: comparative-judgment — severity scoring by pairwise comparison
 
 ## metadata
-- Spec version: 0.3.0
+- Spec version: 0.4.0
 - Status: DRAFT
 - Last updated: 2026-08-28
 - Author(s): Saso Gale
@@ -9,7 +9,7 @@
 - Build class: build-required
 - Role: n/a — a scoring utility; no persona sharpens it. Its one stance-like property is that it never asks for a number, only for a comparison, and that is a requirement rather than a voice.
 - Produced by: /specify @ f72b756
-- Last swept: 2026-08-28 @ 0.3.0 @ D13
+- Last swept: 2026-08-28 @ 0.4.0 @ D15
 - Artifacts land in: the `comparative-judgment` repository root
 - Visibility: public (currently private, flipped when ready). The store path is always supplied by the caller — there is no implicit fallback — but the conventional location used by the documentation and examples is gitignored, so following the docs cannot cause an accidental commit. A general-purpose severity tool will be pointed at real production findings by someone, and a committing default is a trap.
 - Decision record: `specs/comparative-judgment.decisions.md`
@@ -23,12 +23,14 @@ A rater assigns defensible severity to a set of findings by answering only *"whi
 ## in scope
 - [P1] **Core data model** — findings (stable id + content hash), comparisons (both item ids, winner or tie, rater id, session id, UTC timestamp), anchors, band cuts.
 - [P1] **Append-only comparison log** with resumable sessions and retraction-as-record.
-- [P1] **Bradley-Terry fit** by maximum likelihood (MM iteration), with per-item standard errors and deterministic convergence.
+- [P1] **Regularised Bradley-Terry fit** by maximum likelihood (MM iteration), producing scale values with deterministic convergence.
+- [P2] **Per-item standard errors** from the Fisher information — needed by the diagnostics that consume them, not by band placement.
 - [P1] **Simple heuristic pair selection** — pair items whose current estimates are close.
 - [P1] **Band-cut setting** — exactly three absolute judgments, each made with findings visible on both sides.
 - [P1] **Cut calibration** against the written consequence definitions, pinning at least the top cut to an absolute statement so the relative scale acquires an origin.
 - [P1] **Band placement** against established cuts, targeting cut proximity rather than exact rank.
-- [P1] **Terminal UI** — two findings side by side, single-keypress choice, undo, mark-as-tie, progress, session timer.
+- [P1] **Terminal UI** — two findings side by side, single-keypress choice, undo, mark-as-tie, and appearance progress.
+- [P2] **Session timer and comparisons-remaining estimate** in the UI.
 - [P1] **UI-agnostic session API** — `next_pair`, `record`, `undo`, `progress`, `estimates` — the only surface any front end may use.
 - [P1] **YAML findings reader** — each entry carrying a stable `id`, `observation`, `evidence` (a list, so fragments stay separate), `consequence`, `detectable_by` and `tier` — and a **severity-file writer** keyed by finding id.
 - [P2] **Diagnostics report** — per-item standard error, misfit statistics, tie rate, and the regions of the scale they identify as soft.
@@ -81,6 +83,7 @@ Persistent by design — the comparison log *is* the product, and the ordering i
 - **UI-agnostic core from the first commit**: a web adapter is expected later, so session state, pair selection and persistence live in the core, and the core returns structured presentation data rather than formatted output. Formatting in the core is the subtlest way to bake in a terminal assumption.
 - **Rater identity recorded from day one**, with multi-rater analysis deferred: retrofitting the field later leaves every existing comparison unattributable, which is unfixable.
 - **YAML findings in, separate severity file out**: YAML block scalars carry multi-line evidence that CSV quoting and Markdown table cells cannot. The tool never mutates the findings file, so provenance stays explicit and the tool works where it lacks write access.
+- **The consuming harness uses YAML for its findings document** — settled, not assumed: that spec named no format until its own D22 fixed it to match this one. No format adapter is needed.
 - **Ties are recorded, excluded from the fit, and reported as a rate**: forcing a winner on a genuinely equal pair manufactures a false signal, and the tie rate is itself a scale-softness measure. Fitting ties properly (Davidson's extension) is deferred.
 
 ## requirements
@@ -96,7 +99,8 @@ Persistent by design — the comparison log *is* the product, and the ordering i
 - The system SHALL [P1] assign a band to a finding only where at least one recorded comparison involves that finding.
 
 ### event-driven (WHEN — triggered by an action)
-- WHEN [P1] the fit is run over an unchanged comparison log, the system SHALL produce identical scale values, standard errors and bands, using a fixed convergence tolerance, a fixed iteration cap and a deterministic item ordering.
+- WHEN [P1] the fit is run over an unchanged comparison log, the system SHALL produce identical scale values and bands, using a fixed convergence tolerance, a fixed iteration cap and a deterministic item ordering.
+- WHEN [P2] standard errors are computed, they SHALL be reproducible under the same conditions as the scale values.
 - WHEN [P1] the fit is run, the system SHALL apply a symmetric prior of λ pseudo-wins and λ pseudo-losses per item (λ = 0.5) against a virtual opponent at the scale origin, so that an item winning or losing all of its comparisons still receives a finite scale value, and SHALL state λ in its documentation rather than only in code.
 - WHEN [P1] a rater records a comparison, the system SHALL persist it before presenting the next pair.
 - WHEN [P1] a rater retracts a comparison, the system SHALL append a retraction record and SHALL NOT delete the original.
@@ -114,6 +118,7 @@ Persistent by design — the comparison log *is* the product, and the ordering i
 - WHILE [P1] placing a finding against established cuts, the system SHALL select pairs by proximity to a cut rather than by position in a full ordering.
 - WHILE [P1] no cuts have been established, the system SHALL select pairs so as to produce a total order over the current batch, targeting a configured number of appearances per item (default 10) and reporting each item's progress against it.
 - WHILE [P2] reporting diagnostics, the system SHALL emit per-item standard errors, misfit statistics and the tie rate.
+- WHILE [P1] a session is running, the system SHALL display comparisons spent and per-item appearance progress.
 - WHILE [P1] reporting progress for a batch, the system SHALL report the mean comparisons spent per finding placed and the mean appearances per item, so the cost model's own estimates are measured in use rather than assumed.
 
 ### unwanted behavior (IF — error handling)
@@ -155,14 +160,16 @@ Persistent by design — the comparison log *is* the product, and the ordering i
 - [ ] [P2] A diagnostics report names per-item standard errors, misfit statistics and the tie rate.
 - [ ] [P2] An exported anchor set imports into an empty store and reports its bridging-comparison count.
 - [ ] [P1] A recorded comparison carries all six fields — both item ids, outcome, rater id, session id and UTC timestamp; the count of records missing any is zero.
-- [ ] [P1] A running session displays comparisons spent, an estimate remaining, and elapsed session time.
+- [ ] [P1] A running session displays comparisons spent and per-item appearance progress.
+- [ ] [P2] A running session displays an estimate of comparisons remaining and elapsed session time.
 - [ ] [P1] A completed batch reports mean comparisons per finding placed and mean appearances per item, and those figures are compared against the spec's ~3 and ~10 estimates.
 - [ ] [P2] A diagnostics run names the specific scale regions with the highest misfit, not merely per-item values.
 - [ ] [P3] Adaptive selection reaches the same bands as the phase-1 heuristic on the same batch using measurably fewer comparisons.
 - [ ] [P3] With two raters present, per-rater scales are reported and the pairs they disagree on are listed.
 
 ### edge cases
-- [ ] [P1] Two fits over an unchanged log produce byte-identical scale values, standard errors and bands.
+- [ ] [P1] Two fits over an unchanged log produce byte-identical scale values and bands.
+- [ ] [P2] Standard errors are byte-identical across two fits over an unchanged log.
 - [ ] [P1] A comparison log built in a different insertion order, containing the same judgments, produces the same bands.
 - [ ] [P1] A finding whose text is edited produces a new item, and comparisons made against the previous text remain attached to it.
 - [ ] [P1] A retracted comparison is absent from the fit while its record remains present in the log.
@@ -228,7 +235,6 @@ Persistent by design — the comparison log *is* the product, and the ordering i
 - [ ] `textual` is a suitable TUI library for side-by-side panes with keyboard input — risk if wrong: the TUI needs a different library, though the UI-agnostic core makes that a contained change.
 - [ ] ~10 appearances per item gives adequate Bradley-Terry reliability at this scale — risk if wrong: more comparisons needed than budgeted, making the bootstrap longer than the ~250 estimate. **Mitigated**: the tool measures actual appearances per item, so the first bootstrap validates or refutes this rather than leaving it an untested claim.
 - [ ] ~3 comparisons suffice to place a finding against three cuts — risk if wrong: placement costs more and the 1,000-finding projection of ~3,000 comparisons rises. **Mitigated**: the tool measures actual comparisons per finding placed.
-- [ ] The consuming harness will adopt YAML for its findings document — risk if wrong: a format adapter is needed, and the harness spec (which currently names no format) must be amended either way.
 - [ ] Ties are rare enough that excluding them from the fit does not bias the scale — risk if wrong: Davidson's extension is needed sooner than phase 3.
 - [ ] A single rater is the near-term reality, with the rater field present but unexercised — risk if wrong: multi-rater analysis is needed before phase 3.
 - [ ] Severity bands remain the four defect levels, with the `Question` tier outside the scale entirely — risk if wrong: the three-cut model and its "exactly three absolute judgments" claim both change.
@@ -246,6 +252,7 @@ n/a (build-required — see the build prompt)
 ---
 
 ## changelog
+- 0.4.0 (2026-08-28): phase 1 re-cut back toward the MVP the consuming project's sequencing decision assumed (D14) — standard errors, the session timer and the remaining-comparisons estimate move to phase 2. A cross-repository interface scanner added (D15). A stale assumption about the harness's findings format promoted to a settled prior decision.
 - 0.3.0 (2026-08-28): three decisions taken at the phase-1 plan gate written in as requirements — the cold-start stopping condition (D11), cuts stored as anchor pairs rather than thresholds (D12), and a regularised Bradley-Terry fit (D13). D13 is not a refinement: without it the estimate diverges for any item winning or losing all its comparisons, which on a severity scale is guaranteed at both ends.
 - 0.2.0 (2026-08-28): findings schema enumerated to match the consuming harness's spec, and `tier: question` entries excluded from batches, the fit and the anchor set (D10). Found by executing D9's own cross-repository check rather than by review.
 - 0.1.0 (2026-08-28): initial draft. 7 decisions recorded; the source design's merge-sort bootstrap replaced with Bradley-Terry after the sort was found structurally unable to deliver the cycle capture that design calls its primary output.

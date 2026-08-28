@@ -3,22 +3,25 @@
 > Hand this file to a building agent (a fresh Claude Code session, Cursor, Aider, …). It targets
 > **phase 1 only**. The full target is `specs/comparative-judgment.md`; the reasoning behind every
 > settled fork, including one that overturns the source design, is in
-> `specs/comparative-judgment.decisions.md` (D1–D13).
+> `specs/comparative-judgment.decisions.md` (D1–D15).
 
 ## Recommended build-time session settings
 - **Model:** Claude Opus 5. **Effort:** `xhigh` (Extra).
-- Most of this phase is well-specified and mechanical. The **Bradley-Terry fit is the exception** and
-  is subtle in the dangerous way: a wrong standard-error derivation, or a convergence path that
-  varies with input order, produces plausible numbers that are quietly wrong. Two acceptance
-  criteria exist specifically to catch that — byte-identical refit, and insertion-order invariance.
-  Run them early rather than at the end.
+- Most of this phase is well-specified and mechanical. The **Bradley-Terry fit is the exception**:
+  a convergence path that varies with input order produces plausible numbers that are quietly
+  wrong. Two acceptance criteria exist specifically to catch that — byte-identical refit, and
+  insertion-order invariance. Run them early rather than at the end.
+- **Standard errors are NOT in this phase (D14).** The Fisher-information derivation and its
+  pseudo-inverse were the largest and subtlest piece of work here, and nothing in phase 1 consumes
+  them: band placement compares scale values against cut thresholds, and the stopping rule counts
+  appearances. They move to phase 2 with the diagnostics that need them. Do not build them.
 
 ## Read first
 1. `specs/comparative-judgment.md` — the whole target.
-2. `specs/comparative-judgment.decisions.md` — D1–D13. **Read D2 carefully**: it explains why the
+2. `specs/comparative-judgment.decisions.md` — D1–D15. **Read D2 carefully**: it explains why the
    source design's merge sort was rejected, and repeating that reasoning back is a good check that
    you have understood the data model.
-3. The "Not checked" section of that record — six things this specification did *not* verify.
+3. The "Not checked" section of that record — the things this specification did *not* verify.
 
 ## Work in this order
 1. Restate the outcome in one sentence.
@@ -69,9 +72,9 @@ caller supplied.
    Comparisons carry both item ids, the outcome, rater id, session id and a UTC timestamp. The rater
    id is present from the first commit even though there is one rater (D4): retrofitting it later
    leaves every existing comparison unattributable.
-2. **Regularised Bradley-Terry fit** by maximum likelihood (the standard MM iteration), with
-   per-item standard errors from the Fisher information. **Determinism must be engineered, not hoped
-   for**: fixed convergence tolerance, fixed iteration cap, deterministic item ordering,
+2. **Regularised Bradley-Terry fit** by maximum likelihood (the standard MM iteration), producing
+   scale values only — **no standard errors in this phase (D14)**. **Determinism must be engineered,
+   not hoped for**: fixed convergence tolerance, fixed iteration cap, deterministic item ordering,
    deterministic tie-breaking. Non-convergence within the cap reports failure and emits nothing.
    **Regularisation is required, not optional (D13):** apply a symmetric prior of λ = 0.5
    pseudo-wins and λ = 0.5 pseudo-losses per item against a virtual opponent at the scale origin.
@@ -103,8 +106,9 @@ caller supplied.
 
 ## Phase 1 scope — chosen optional items
 
-7. **Full TUI** — two findings side by side, single-keypress choice, **undo**, mark-as-tie, progress,
-   session timer. Undo is not a nicety: in a 250-comparison session a misfired key otherwise becomes
+7. **Comparison TUI** — two findings side by side, single-keypress choice, **undo**, mark-as-tie and
+   per-item appearance progress. The session timer and the comparisons-remaining estimate move to
+   phase 2 (D14). Undo is not a nicety: in a 250-comparison session a misfired key otherwise becomes
    a silently wrong datum in the log that everything downstream derives from.
 8. **Resumable sessions.** The bootstrap is ~250 comparisons and is expected to span sittings.
    Largely a matter of reading back the append-only log.
@@ -136,7 +140,7 @@ Stack: Python 3.12+, `uv` with a committed lockfile pinning **exact** versions (
       absolute judgments; every finding receives a band.
 - [ ] Placing a 51st finding against established cuts costs no more than 4 comparisons, asserted by
       counting records.
-- [ ] Two fits over an unchanged log produce byte-identical scale values, standard errors and bands.
+- [ ] Two fits over an unchanged log produce byte-identical scale values and bands.
 - [ ] A log built in a different insertion order, containing the same judgments, produces the same
       bands.
 - [ ] A session interrupted mid-batch resumes at the same position with the same spent count.
@@ -166,7 +170,7 @@ Stack: Python 3.12+, `uv` with a committed lockfile pinning **exact** versions (
 - [ ] A store with an unrecognised schema version refuses to write and names the mismatch.
 - [ ] Invoking with no store path fails by name rather than writing inside the repository.
 - [ ] A recorded comparison carries all six fields; the count missing any is zero.
-- [ ] A running session displays comparisons spent, estimate remaining, and elapsed time.
+- [ ] A running session displays comparisons spent and per-item appearance progress.
 - [ ] A completed batch reports mean comparisons per finding placed and mean appearances per item,
       compared against the spec's ~3 and ~10 estimates (D8).
 - [ ] The findings file is unchanged after a full scoring run, asserted by content hash.
@@ -188,8 +192,8 @@ Stack: Python 3.12+, `uv` with a committed lockfile pinning **exact** versions (
 ---
 
 ## Reporting back
-- Append any fork you resolve to `specs/comparative-judgment.decisions.md` from **D14**, in the same
-  shape (fork, options, decision, why, consequences) — and each entry from D14 onward must end with a
+- Append any fork you resolve to `specs/comparative-judgment.decisions.md` from **D16**, in the same
+  shape (fork, options, decision, why, consequences) — and each entry from D16 onward must end with a
   `**Rule** — …` line naming what enforces it: a test, a scan, or explicitly *judgment, not
   checkable*.
 - Record architectural calls in the spec's **decisions made** block.

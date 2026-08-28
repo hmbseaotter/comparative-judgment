@@ -3,7 +3,7 @@
 - **Project:** comparative-judgment — severity scoring by pairwise comparison
 - **Identity:** A standalone tool that lets a rater assign defensible severity to findings by answering only "which of these two is worse?", never by picking a number on a scale.
 - **Spec:** `specs/comparative-judgment.md`
-- **Status:** D1–D13 recorded. D11–D13 were taken at the phase-1 plan gate. D1–D8 from the /specify session of 2026-08-28; D9 settled at emit, resolving a contradiction the linter surfaced.
+- **Status:** D1–D15 recorded. D11–D13 at the phase-1 plan gate; D14–D15 at the sweep that followed it. D1–D8 from the /specify session of 2026-08-28; D9 settled at emit, resolving a contradiction the linter surfaced.
 - **Legend:** ✅ decided · 🔶 open / revisit · ⏭️ deferred to a later phase
 
 <!-- rules-required-from: D9 -->
@@ -265,21 +265,63 @@ Severity ownership went to a separate file because the tool must never mutate a 
 
 ---
 
-## Not checked — as of 0.3.0 @ D13
+## D14 — Phase 1 re-cut to the size the sequencing decision assumed
+
+**Fork:** The consuming harness's D13 put this tool's build *in series ahead of its own*, justified on the MVP being small — "present two findings, record which is worse, persist, emit a total order, then three band cuts." What got specified is materially larger. Accept the delay, shrink phase 1, or unwind the serial order?
+
+**Options considered**
+- **(A) Cut phase 1 back toward the original MVP**, deferring the rest.
+- **(B) Accept the larger tool and the longer serial delay.**
+- **(C) Revisit the harness's D13 and run the two builds in parallel**, authoring findings without severities and backfilling.
+
+**Decision ✅** — **(A).** Moved out of phase 1: **per-item standard errors** (Fisher information and its pseudo-inverse), the **session timer**, and the **comparisons-remaining estimate**. Retained: the regularised fit's scale values, cuts, band placement, the session API, a working comparison loop with undo and tie, appearance progress, and the severity writer.
+
+**Why** — Standard errors are the largest and subtlest piece of work in the phase, and **nothing in phase 1 consumes them**: band placement compares scale values against cut thresholds, and D11's stopping rule counts appearances rather than reading precision. They exist to serve the phase-2 diagnostics. Deferring them removes exactly the component the build prompt singles out as dangerous — a wrong derivation produces plausible numbers rather than an error — from the phase that is blocking another project. (B) was rejected because the estimate the harness's sequencing rests on is not merely optimistic but now measurably wrong, and leaving it unaddressed makes a committed decision rest on a falsified premise. (C) remains available and is the right answer if the trimmed phase still runs long; it was not chosen now because the trimmed scope plausibly restores "days, not weeks".
+
+**Consequences / caveats** — The spec's outcome mentions per-finding standard errors; that part of the outcome is now met at phase 2 rather than phase 1, which the phase tags say and the prose should not contradict. The harness's assumption that this tool is days of work is now testable rather than speculative, and the trimmed phase is what it should be tested against.
+
+**Rule** — The phase-1 acceptance criteria contain no assertion about standard errors, and the phase-2 criteria contain the reproducibility assertion for them. Enforced by the spec linter's phase-tag agreement check plus a reading of the two criteria groups — the placement itself is *judgment, not checkable*.
+
+---
+
+## D15 — A scanner for cross-repository interface drift
+
+**Fork:** Three findings have now come from one cause — nothing keeps this spec and the consuming harness's spec in agreement about their shared findings interface. D22 (harness) named this "judgment, not checkable". Repair the third instance, or build the detector?
+
+**Options considered**
+- **(A) Write the scanner now, before the build.**
+- **(B) Write it after phase 1 ships.**
+- **(C) Fix the instance and keep the check manual.**
+
+**Decision ✅** — **(A).** A script taking both spec paths and asserting: both name the same six findings keys; both state severity is joined by id and never embedded; and neither asserts something about the other that the other's current version contradicts.
+
+**Why** — The three instances are the format gap (harness D22), the tier gap (D10), and a stale assertion in this spec that the harness "currently names no format" — found in a sweep, after the harness had named one and pushed it. The governing rule is that at the third instance of a shape the deliverable is the detector rather than the repair, and the cheapest moment to lock a class is the change that empties it. (C) is the reasoning that permitted instances one and two. (B) defers past a build that touches both repositories, which is when a fourth instance is most likely.
+
+**Consequences / caveats** — The scanner lives in the **harness** repository, because the harness owns the findings-document format (its D22 settled it) and the authoritative description belongs beside the checker. It takes both spec paths as arguments so it can be run from either working directory. That placement is a judgment call, and the alternative — duplicating it into both repos — was rejected as creating two sources of truth for one check.
+
+**Rule** — The scanner exits non-zero on disagreement and is run before any commit that touches either spec's interface description. Enforced by the script itself; remembering to run it is *judgment, not checkable* until it is wired into a hook.
+
+---
+
+## Not checked — as of 0.4.0 @ D15
 
 - **Bradley-Terry convergence behaviour was reasoned about, not tested.** The MM iteration is standard and convergent for connected graphs, but the interaction between the deterministic-ordering requirement and floating-point summation order has not been examined. The byte-identical-refit criterion is what will surface it.
 - **`textual` was assumed suitable and not evaluated** against the specific need for stable side-by-side panes with single-keypress capture and undo.
 - **The ~5 second performance target for 1,000 findings / 10,000 comparisons is an estimate**, not a benchmark; no fit has been run.
 - **The consuming harness's findings document format was decided here (D5) but that spec has not yet been amended.** Until it is, two specs disagree — this one names YAML, the other names no format at all.
 - **No literature review was performed.** The method, the ~10-appearances figure and the standard-error approach are taken from general knowledge of comparative judgment practice, not from cited sources. The source design's instruction was to treat the literature as a starting point; that has not been discharged.
+- **λ = 0.5 is a conventional regularisation strength, not a validated one** (D13). No sensitivity analysis was done; the effect on band placement near a cut is reasoned to be negligible and has not been measured.
+- **The appearance target of 10 (D11) is the same untested estimate assumption 3 records** — adopting it as the stopping condition makes it self-consistent, not verified. The measurement required by D8 is what will settle it.
+- **Cut inversion after a refit (D12) has never been observed**, only reasoned about; the reporting path for it is untested against a real occurrence.
+- **The phase-1 re-cut (D14) is an estimate, not a measurement** — nobody has built the trimmed scope, so "days, not weeks" remains a projection.
 - **Whether bands should be recomputed or frozen after a refit was decided in principle (freeze, propose revisions) but not specified in requirements** — no requirement or acceptance criterion covers the revision-proposal path.
 
 ---
 
 ## Document status
 
-Decisions **D1–D13** recorded. The most consequential is **D2**, which overturns the source design's central algorithmic choice; **D5** additionally settles a gap in a second project's specification, which must be amended to match.
+Decisions **D1–D15** recorded. The most consequential is **D2**, which overturns the source design's central algorithmic choice; **D5** additionally settles a gap in a second project's specification, which must be amended to match.
 
 Spec: `specs/comparative-judgment.md`. Build prompt: `specs/comparative-judgment.build-prompt.md` (phase 1).
 
-Any new fork encountered during the build is appended here in the same shape, and from **D9** onward each entry ends with a `**Rule**` line naming what enforces it. Numbering continues from **D14**.
+Any new fork encountered during the build is appended here in the same shape, and from **D9** onward each entry ends with a `**Rule**` line naming what enforces it. Numbering continues from **D16**.
