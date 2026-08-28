@@ -150,8 +150,9 @@ Stack: Python 3.12+, `uv` with a committed lockfile pinning **exact** versions (
       attached to it.
 - [ ] A retracted comparison is absent from the fit while its record remains in the log.
 - [ ] A tie is recorded, excluded from the fit, and counted in the tie rate.
-- [ ] A deliberately intransitive triad (A>B, B>C, C>A) is accepted without error and raises the
-      misfit statistic for those items.
+- [ ] A deliberately intransitive triad (A>B, B>C, C>A) is accepted without error rather than
+      rejected, and leaves the items it involves indistinguishable on the scale. (The misfit half
+      of this belongs to phase 2, with the standard errors D14 moved there.)
 - [ ] An item winning every one of its comparisons receives a finite scale value, and the fit
       converges within its cap rather than reaching it.
 - [ ] A cut round-trips as an ordered pair of findings, with its threshold recomputed from current

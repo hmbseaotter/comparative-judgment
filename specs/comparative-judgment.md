@@ -1,7 +1,7 @@
 # specification: comparative-judgment — severity scoring by pairwise comparison
 
 ## metadata
-- Spec version: 0.4.0
+- Spec version: 0.4.1
 - Status: DRAFT
 - Last updated: 2026-08-28
 - Author(s): Saso Gale
@@ -9,7 +9,7 @@
 - Build class: build-required
 - Role: n/a — a scoring utility; no persona sharpens it. Its one stance-like property is that it never asks for a number, only for a comparison, and that is a requirement rather than a voice.
 - Produced by: /specify @ f72b756
-- Last swept: 2026-08-28 @ 0.4.0 @ D16
+- Last swept: 2026-08-28 @ 0.4.1 @ D17
 - Artifacts land in: the `comparative-judgment` repository root
 - Visibility: public (currently private, flipped when ready). The store path is always supplied by the caller — there is no implicit fallback — but the conventional location used by the documentation and examples is gitignored, so following the docs cannot cause an accidental commit. A general-purpose severity tool will be pointed at real production findings by someone, and a committing default is a trap.
 - Decision record: `specs/comparative-judgment.decisions.md`
@@ -174,7 +174,8 @@ Persistent by design — the comparison log *is* the product, and the ordering i
 - [ ] [P1] A finding whose text is edited produces a new item, and comparisons made against the previous text remain attached to it.
 - [ ] [P1] A retracted comparison is absent from the fit while its record remains present in the log.
 - [ ] [P1] A tie is recorded, excluded from the fit, and counted in the tie rate.
-- [ ] [P1] A deliberately intransitive triad (A>B, B>C, C>A) is accepted without error, and raises the misfit statistic for those items.
+- [ ] [P1] A deliberately intransitive triad (A>B, B>C, C>A) is accepted without error rather than rejected, and leaves the items it involves indistinguishable on the scale.
+- [ ] [P2] That same triad raises the misfit statistic for the items it involves.
 - [ ] [P1] An item that wins every one of its comparisons receives a finite scale value, and the fit converges within its iteration cap rather than reaching it.
 - [ ] [P1] A cut round-trips as an ordered pair of findings, and its threshold is recomputed from current scale values rather than stored as a number.
 - [ ] [P1] A refit that inverts a cut's anchor pair reports that cut by name.
@@ -252,6 +253,7 @@ n/a (build-required — see the build prompt)
 ---
 
 ## changelog
+- 0.4.1 (2026-08-28): the intransitivity acceptance criterion split across the two phases it actually spans (D17). Its misfit half became unreachable in phase 1 when D14 moved standard errors to phase 2, and the wording did not follow. Phase 1 built and verified: 30 of 31 criteria passed before this split, 31 of 31 after.
 - 0.4.0 (2026-08-28): phase 1 re-cut back toward the MVP the consuming project's sequencing decision assumed (D14) — standard errors, the session timer and the remaining-comparisons estimate move to phase 2. A cross-repository interface scanner added (D15). A stale assumption about the harness's findings format promoted to a settled prior decision.
 - 0.3.0 (2026-08-28): three decisions taken at the phase-1 plan gate written in as requirements — the cold-start stopping condition (D11), cuts stored as anchor pairs rather than thresholds (D12), and a regularised Bradley-Terry fit (D13). D13 is not a refinement: without it the estimate diverges for any item winning or losing all its comparisons, which on a severity scale is guaranteed at both ends.
 - 0.2.0 (2026-08-28): findings schema enumerated to match the consuming harness's spec, and `tier: question` entries excluded from batches, the fit and the anchor set (D10). Found by executing D9's own cross-repository check rather than by review.

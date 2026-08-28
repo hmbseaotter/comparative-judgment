@@ -189,6 +189,11 @@ class TestIntransitivity:
         assert len(result.estimates) == 3
 
     def test_a_perfect_cycle_leaves_the_items_indistinguishable(self) -> None:
+        # The phase-1 half of the intransitivity criterion (D17): the triad is
+        # accepted rather than rejected, and the scale reports the items as
+        # indistinguishable instead of inventing an order from arrival sequence.
+        # The other half -- that misfit rises for these items -- is phase 2,
+        # where the statistic itself lives.
         """Each wins once and loses once, so nothing separates them.
 
         The interesting output is that the scale says so, rather than inventing

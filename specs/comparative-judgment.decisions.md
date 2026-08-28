@@ -3,7 +3,7 @@
 - **Project:** comparative-judgment — severity scoring by pairwise comparison
 - **Identity:** A standalone tool that lets a rater assign defensible severity to findings by answering only "which of these two is worse?", never by picking a number on a scale.
 - **Spec:** `specs/comparative-judgment.md`
-- **Status:** D1–D16 recorded. D11–D13 at the phase-1 plan gate; D14–D15 at the sweep that followed; D16 during the build. D1–D8 from the /specify session of 2026-08-28; D9 settled at emit, resolving a contradiction the linter surfaced.
+- **Status:** D1–D17 recorded. D11–D13 at the phase-1 plan gate; D14–D15 at the sweep that followed; D16 during the build. D1–D8 from the /specify session of 2026-08-28; D9 settled at emit, resolving a contradiction the linter surfaced.
 - **Legend:** ✅ decided · 🔶 open / revisit · ⏭️ deferred to a later phase
 
 <!-- rules-required-from: D9 -->
@@ -324,7 +324,28 @@ So the old cap failed on cleanliness, not on noise. (C) would mean the tool refu
 
 ---
 
-## Not checked — as of 0.4.0 @ D16
+## D17 — Splitting a criterion that outlived its phase
+
+**Fork:** The phase-1 acceptance criterion read *"an intransitive triad is accepted without error, and raises the misfit statistic for those items."* D14 later moved misfit statistics to phase 2 with the standard errors, leaving half of that criterion unreachable in the phase it was tagged to. Leave it, drop it, or split it?
+
+**Options considered**
+- **(A) Split it in two, one clause per phase.**
+- **(B) Leave it and note the exception** when reporting the phase.
+- **(C) Drop the misfit half** entirely.
+
+**Decision ✅** — **(A).** Phase 1 asserts the triad is accepted rather than rejected and leaves the items indistinguishable; phase 2 asserts it raises their misfit.
+
+**Why** — A criterion that cannot pass is worse than a missing one: it reads later as an unexplained failure rather than as a deliberate phase boundary, and the reader has no way to tell which. (C) would discard the assertion that matters most about intransitivity — that the tool *localises* it — which is the whole reason the model was chosen over a sort. (B) relies on someone remembering the exception at exactly the moment the criteria list is being read by someone who was not here.
+
+The general point is worth keeping: **when a decision moves work between phases, the acceptance criteria tagged to those phases move with it.** D14 moved the capability and left its criterion behind, which no linter can see — phase tags were internally consistent throughout, and the criterion was well-formed. Only running the criteria found it.
+
+**Consequences / caveats** — Phase 1 passed 30 of 31 criteria before this split and 31 of 31 after; the change is bookkeeping, not a behaviour fix. Phase 2 now inherits an assertion written before its implementation exists, which is the right direction for that dependency to run.
+
+**Rule** — A phase is not reported complete until every criterion tagged to it has been run and passed. Where a criterion cannot pass, it is split or retagged before the phase is called done, never excused in prose. Enforced by judgment during the acceptance walkthrough — *not checkable*, since no linter can tell an unreachable criterion from a failing one.
+
+---
+
+## Not checked — as of 0.4.1 @ D17
 
 - **Bradley-Terry convergence behaviour was reasoned about, not tested.** The MM iteration is standard and convergent for connected graphs, but the interaction between the deterministic-ordering requirement and floating-point summation order has not been examined. The byte-identical-refit criterion is what will surface it.
 - **`textual` was assumed suitable and not evaluated** against the specific need for stable side-by-side panes with single-keypress capture and undo.
@@ -341,8 +362,8 @@ So the old cap failed on cleanliness, not on noise. (C) would mean the tool refu
 
 ## Document status
 
-Decisions **D1–D16** recorded. The most consequential is **D2**, which overturns the source design's central algorithmic choice; **D5** additionally settles a gap in a second project's specification, which must be amended to match.
+Decisions **D1–D17** recorded. The most consequential is **D2**, which overturns the source design's central algorithmic choice; **D5** additionally settles a gap in a second project's specification, which must be amended to match.
 
 Spec: `specs/comparative-judgment.md`. Build prompt: `specs/comparative-judgment.build-prompt.md` (phase 1).
 
-Any new fork encountered during the build is appended here in the same shape, and from **D9** onward each entry ends with a `**Rule**` line naming what enforces it. Numbering continues from **D17**.
+Any new fork encountered during the build is appended here in the same shape, and from **D9** onward each entry ends with a `**Rule**` line naming what enforces it. Numbering continues from **D18**.
