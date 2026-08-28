@@ -1,7 +1,7 @@
 # specification: comparative-judgment — severity scoring by pairwise comparison
 
 ## metadata
-- Spec version: 0.1.0
+- Spec version: 0.2.0
 - Status: DRAFT
 - Last updated: 2026-08-28
 - Author(s): Saso Gale
@@ -9,7 +9,7 @@
 - Build class: build-required
 - Role: n/a — a scoring utility; no persona sharpens it. Its one stance-like property is that it never asks for a number, only for a comparison, and that is a requirement rather than a voice.
 - Produced by: /specify @ f72b756
-- Last swept: 2026-08-28 @ 0.1.0 @ D9
+- Last swept: 2026-08-28 @ 0.2.0 @ D10
 - Artifacts land in: the `comparative-judgment` repository root
 - Visibility: public (currently private, flipped when ready). The store path is always supplied by the caller — there is no implicit fallback — but the conventional location used by the documentation and examples is gitignored, so following the docs cannot cause an accidental commit. A general-purpose severity tool will be pointed at real production findings by someone, and a committing default is a trap.
 - Decision record: `specs/comparative-judgment.decisions.md`
@@ -30,7 +30,7 @@ A rater assigns defensible severity to a set of findings by answering only *"whi
 - [P1] **Band placement** against established cuts, targeting cut proximity rather than exact rank.
 - [P1] **Terminal UI** — two findings side by side, single-keypress choice, undo, mark-as-tie, progress, session timer.
 - [P1] **UI-agnostic session API** — `next_pair`, `record`, `undo`, `progress`, `estimates` — the only surface any front end may use.
-- [P1] **YAML findings reader** and **severity-file writer** keyed by finding id.
+- [P1] **YAML findings reader** — each entry carrying a stable `id`, `observation`, `evidence` (a list, so fragments stay separate), `consequence`, `detectable_by` and `tier` — and a **severity-file writer** keyed by finding id.
 - [P2] **Diagnostics report** — per-item standard error, misfit statistics, tie rate, and the regions of the scale they identify as soft.
 - [P2] **Cross-corpus anchor import/export**, with a connectivity report naming under-bridged components.
 - [P3] **Adaptive pair selection** and a confidence-based stopping rule.
@@ -116,7 +116,8 @@ Persistent by design — the comparison log *is* the product, and the ordering i
 ### unwanted behavior (IF — error handling)
 - IF [P1] a rater marks a pair as too close to call, the system SHALL record a tie, SHALL exclude it from the fit, and SHALL count it toward the reported tie rate.
 - IF [P1] the fit does not converge within its iteration cap, the system SHALL report non-convergence and SHALL NOT emit scale values.
-- IF [P1] a finding lacks observation or consequence text, the system SHALL refuse to admit it to a batch and SHALL name the finding.
+- IF [P1] a finding lacks `id`, `observation` or `consequence` text, the system SHALL refuse to admit it to a batch and SHALL name the finding.
+- IF [P1] a finding's `tier` is `question`, the system SHALL exclude it from the batch, from the fit and from the anchor set, and SHALL report how many were excluded.
 - IF [P1] a store is opened whose schema version is unrecognised, the system SHALL refuse to write and SHALL report the version mismatch.
 - IF [P1] the caller supplies no store path, the system SHALL fail with a named error rather than defaulting to a path inside the repository.
 
@@ -165,7 +166,9 @@ Persistent by design — the comparison log *is* the product, and the ordering i
 - [ ] [P1] A deliberately intransitive triad (A>B, B>C, C>A) is accepted without error, and raises the misfit statistic for those items.
 - [ ] [P1] Two batches with no bridging comparisons are reported as separate components, and no cross-component band comparison is emitted.
 - [ ] [P1] A fit forced past its iteration cap reports non-convergence and emits no values.
-- [ ] [P1] A finding missing consequence text is refused by name.
+- [ ] [P1] A finding missing `id`, observation or consequence text is refused by name.
+- [ ] [P1] A findings file mixing `defect` and `question` tiers admits only the defects, excludes the questions from the fit and the anchor set, and reports the excluded count.
+- [ ] [P1] A findings entry whose `evidence` holds three separate fragments is read with all three still distinct.
 - [ ] [P1] A finding with no comparison recorded against it receives no band, and is reported as unplaced rather than defaulted.
 - [ ] [P1] A session killed immediately after a keypress retains that comparison on restart, proving it was persisted before the next pair was presented.
 - [ ] [P1] A store whose schema version is unrecognised refuses to write and names the version mismatch.
@@ -235,4 +238,5 @@ n/a (build-required — see the build prompt)
 ---
 
 ## changelog
+- 0.2.0 (2026-08-28): findings schema enumerated to match the consuming harness's spec, and `tier: question` entries excluded from batches, the fit and the anchor set (D10). Found by executing D9's own cross-repository check rather than by review.
 - 0.1.0 (2026-08-28): initial draft. 7 decisions recorded; the source design's merge-sort bootstrap replaced with Bradley-Terry after the sort was found structurally unable to deliver the cycle capture that design calls its primary output.

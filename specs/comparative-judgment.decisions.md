@@ -3,7 +3,7 @@
 - **Project:** comparative-judgment — severity scoring by pairwise comparison
 - **Identity:** A standalone tool that lets a rater assign defensible severity to findings by answering only "which of these two is worse?", never by picking a number on a scale.
 - **Spec:** `specs/comparative-judgment.md`
-- **Status:** D1–D9 recorded. D1–D8 from the /specify session of 2026-08-28; D9 settled at emit, resolving a contradiction the linter surfaced.
+- **Status:** D1–D10 recorded. D1–D8 from the /specify session of 2026-08-28; D9 settled at emit, resolving a contradiction the linter surfaced.
 - **Legend:** ✅ decided · 🔶 open / revisit · ⏭️ deferred to a later phase
 
 <!-- rules-required-from: D9 -->
@@ -187,7 +187,26 @@ Severity ownership went to a separate file because the tool must never mutate a 
 
 ---
 
-## Not checked — as of 0.1.0 @ D9
+## D10 — Findings schema, and excluding the Question tier
+
+**Fork:** This spec referenced only `id`, `observation` and `consequence`, never enumerating the findings schema, while the consuming harness's spec now specifies six keys. It also said nothing about `tier`, which distinguishes defects from non-defect open questions. Should the tool know the full schema, and what does it do with `question` rows?
+
+**Options considered**
+- **(A) Enumerate the schema; exclude `tier: question` from batches, the fit and the anchor set, and report the excluded count.**
+- **(B) Enumerate the schema; rate `question` rows like any other** — the rater can judge them if they appear.
+- **(C) Leave the schema unenumerated** — the tool reads the fields it needs and ignores the rest.
+
+**Decision ✅** — **(A).**
+
+**Why** — (C) is what caused the problem: an interface described on one side only drifts, and the harness spec had already fixed six keys this document did not mention. (B) is worse than it sounds. Question-tier rows are **non-defects by definition** — open questions for the owning team about behaviour that may be correct by design — so they have no consequence to compare against. Rating them is meaningless on its own terms, and the damage compounds: a rated question row enters the **anchor set**, where it becomes a reference point that every later placement is measured against. A scale anchored partly on items with no consequence is quietly wrong everywhere, and nothing in the output would reveal it. Reporting the excluded count keeps the exclusion visible rather than silent, so a rater who expected 70 findings and sees 63 admitted knows why.
+
+**Consequences / caveats** — The tool now depends on `tier` being present, so it is a required key rather than an optional one — which the harness spec's schema already makes it. Found by executing D9's own stated rule (that the two specs' descriptions of this interface must stay in agreement), not by review — the first time that rule paid for itself, one decision after being written.
+
+**Rule** — Three acceptance criteria, enforced by test: a findings file mixing tiers admits only defects and reports the excluded count; an entry missing `id`, observation or consequence is refused by name; and three evidence fragments survive reading as three. The cross-repository schema agreement itself remains *judgment, not checkable* — no linter spans both repositories, and both changelogs now say so.
+
+---
+
+## Not checked — as of 0.2.0 @ D10
 
 - **Bradley-Terry convergence behaviour was reasoned about, not tested.** The MM iteration is standard and convergent for connected graphs, but the interaction between the deterministic-ordering requirement and floating-point summation order has not been examined. The byte-identical-refit criterion is what will surface it.
 - **`textual` was assumed suitable and not evaluated** against the specific need for stable side-by-side panes with single-keypress capture and undo.
@@ -200,8 +219,8 @@ Severity ownership went to a separate file because the tool must never mutate a 
 
 ## Document status
 
-Decisions **D1–D9** recorded. The most consequential is **D2**, which overturns the source design's central algorithmic choice; **D5** additionally settles a gap in a second project's specification, which must be amended to match.
+Decisions **D1–D10** recorded. The most consequential is **D2**, which overturns the source design's central algorithmic choice; **D5** additionally settles a gap in a second project's specification, which must be amended to match.
 
 Spec: `specs/comparative-judgment.md`. Build prompt: `specs/comparative-judgment.build-prompt.md` (phase 1).
 
-Any new fork encountered during the build is appended here in the same shape, and from **D9** onward each entry ends with a `**Rule**` line naming what enforces it. Numbering continues from **D10**.
+Any new fork encountered during the build is appended here in the same shape, and from **D9** onward each entry ends with a `**Rule**` line naming what enforces it. Numbering continues from **D11**.

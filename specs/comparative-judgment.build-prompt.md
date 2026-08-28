@@ -3,7 +3,7 @@
 > Hand this file to a building agent (a fresh Claude Code session, Cursor, Aider, …). It targets
 > **phase 1 only**. The full target is `specs/comparative-judgment.md`; the reasoning behind every
 > settled fork, including one that overturns the source design, is in
-> `specs/comparative-judgment.decisions.md` (D1–D9).
+> `specs/comparative-judgment.decisions.md` (D1–D10).
 
 ## Recommended build-time session settings
 - **Model:** Claude Opus 5. **Effort:** `xhigh` (Extra).
@@ -15,7 +15,7 @@
 
 ## Read first
 1. `specs/comparative-judgment.md` — the whole target.
-2. `specs/comparative-judgment.decisions.md` — D1–D9. **Read D2 carefully**: it explains why the
+2. `specs/comparative-judgment.decisions.md` — D1–D10. **Read D2 carefully**: it explains why the
    source design's merge sort was rejected, and repeating that reasoning back is a good check that
    you have understood the data model.
 3. The "Not checked" section of that record — six things this specification did *not* verify.
@@ -79,8 +79,12 @@ caller supplied.
    High/Medium, Medium/Low), each made with findings visible on both sides. At least the top cut is
    tied to a written consequence definition, because a pairwise scale is *relative with no origin* —
    the ordering can be internally perfect while the whole set sits a band too high.
-5. **YAML findings reader and severity writer.** The severity file names the run id, anchor-set
-   version and the hash of the log it was computed from.
+5. **YAML findings reader and severity writer.** Each findings entry carries `id`, `observation`,
+   `evidence` (a **list** — fragments stay separate), `consequence`, `detectable_by` and `tier`.
+   **Entries with `tier: question` are excluded** from the batch, the fit and the anchor set, with
+   the excluded count reported (D10): they are non-defects with no consequence to compare, and a
+   rated question row would become an anchor that silently distorts every later placement. The
+   severity file names the run id, anchor-set version and the hash of the log it was computed from.
 6. **Repo hygiene floor.** `.gitignore` covering the conventional store location named in the
    documentation (`.cj-store/`), plus `LICENSE`; and `uv.lock` with exact pinned versions once
    dependencies are declared. There is no implicit store path — invoking without one fails by name
@@ -135,7 +139,10 @@ Stack: Python 3.12+, `uv` with a committed lockfile pinning **exact** versions (
 - [ ] Two batches with no bridging comparisons are reported as separate components; no
       cross-component band comparison is emitted.
 - [ ] A fit forced past its iteration cap reports non-convergence and emits no values.
-- [ ] A finding missing consequence text is refused by name.
+- [ ] A finding missing `id`, observation or consequence text is refused by name.
+- [ ] A findings file mixing `defect` and `question` tiers admits only defects, excludes questions
+      from the fit and the anchor set, and reports the excluded count.
+- [ ] A findings entry whose `evidence` holds three fragments is read with all three still distinct.
 - [ ] A finding with no comparison against it receives no band and is reported as unplaced.
 - [ ] A store with an unrecognised schema version refuses to write and names the mismatch.
 - [ ] Invoking with no store path fails by name rather than writing inside the repository.
@@ -162,8 +169,8 @@ Stack: Python 3.12+, `uv` with a committed lockfile pinning **exact** versions (
 ---
 
 ## Reporting back
-- Append any fork you resolve to `specs/comparative-judgment.decisions.md` from **D10**, in the same
-  shape (fork, options, decision, why, consequences) — and each entry from D10 onward must end with a
+- Append any fork you resolve to `specs/comparative-judgment.decisions.md` from **D11**, in the same
+  shape (fork, options, decision, why, consequences) — and each entry from D11 onward must end with a
   `**Rule** — …` line naming what enforces it: a test, a scan, or explicitly *judgment, not
   checkable*.
 - Record architectural calls in the spec's **decisions made** block.
