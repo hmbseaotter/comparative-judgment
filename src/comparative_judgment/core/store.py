@@ -163,6 +163,28 @@ class Store:
         value = _read_json(self.path / META_FILE).get("anchor_set_version")
         return str(value) if value is not None else "1"
 
+    def put_load_summary(self, excluded_questions: Sequence[str]) -> None:
+        """Record which entries were excluded as questions when findings were loaded.
+
+        Persisted rather than recomputed because the exclusion happens against
+        the *source document*, which the store does not keep: by the time these
+        findings are here, the question rows are already gone. A rater who
+        expected seventy findings and sees sixty-three admitted needs to be told
+        why, and "seven were questions" is a different situation from "seven were
+        malformed".
+        """
+        meta = _read_json(self.path / META_FILE)
+        meta["excluded_questions"] = list(excluded_questions)
+        _write_json(self.path / META_FILE, meta)
+
+    def excluded_question_ids(self) -> tuple[str, ...]:
+        raw = _read_json(self.path / META_FILE).get("excluded_questions", [])
+        entries = as_list(raw, META_FILE, error=StoreSchemaError)
+        return tuple(as_str(e, META_FILE, error=StoreSchemaError) for e in entries)
+
+    def excluded_question_count(self) -> int:
+        return len(self.excluded_question_ids())
+
     # -- findings ----------------------------------------------------------
 
     def put_findings(self, findings: Iterable[Finding]) -> None:
