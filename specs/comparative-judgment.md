@@ -9,7 +9,7 @@
 - Build class: build-required
 - Role: n/a — a scoring utility; no persona sharpens it. Its one stance-like property is that it never asks for a number, only for a comparison, and that is a requirement rather than a voice.
 - Produced by: /specify @ f72b756
-- Last swept: 2026-08-28 @ 0.4.0 @ D15
+- Last swept: 2026-08-28 @ 0.4.0 @ D16
 - Artifacts land in: the `comparative-judgment` repository root
 - Visibility: public (currently private, flipped when ready). The store path is always supplied by the caller — there is no implicit fallback — but the conventional location used by the documentation and examples is gitignored, so following the docs cannot cause an accidental commit. A general-purpose severity tool will be pointed at real production findings by someone, and a committing default is a trap.
 - Decision record: `specs/comparative-judgment.decisions.md`

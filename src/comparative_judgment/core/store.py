@@ -43,6 +43,13 @@ from comparative_judgment.core.models import (
     Retraction,
     Tier,
 )
+from comparative_judgment.core.shapes import (
+    as_dict,
+    as_int,
+    as_list,
+    as_str,
+    field,
+)
 
 META_FILE: Final[str] = "meta.json"
 FINDINGS_FILE: Final[str] = "findings.jsonl"
@@ -81,53 +88,9 @@ def _write_json(path: Path, payload: dict[str, object]) -> None:
     )
 
 
-# -- checked JSON boundary ---------------------------------------------------
-# `json.loads` returns Any, and this package forbids explicit Any. Narrowing at
-# the boundary is not type appeasement: a store is append-only and shared across
-# sessions, so a malformed one should produce a named refusal rather than a
-# KeyError or a TypeError three frames deeper. Each helper names the file and
-# field it was reading when it gave up.
-
-
-def _as_dict(value: object, where: str) -> dict[str, object]:
-    if not isinstance(value, dict):
-        msg = f"{where}: expected an object, found {type(value).__name__}"
-        raise StoreSchemaError(msg)
-    return {str(k): v for k, v in value.items()}
-
-
-def _as_list(value: object, where: str) -> list[object]:
-    if not isinstance(value, list):
-        msg = f"{where}: expected a list, found {type(value).__name__}"
-        raise StoreSchemaError(msg)
-    return list(value)
-
-
-def _as_str(value: object, where: str) -> str:
-    if not isinstance(value, str):
-        msg = f"{where}: expected a string, found {type(value).__name__}"
-        raise StoreSchemaError(msg)
-    return value
-
-
-def _as_int(value: object, where: str) -> int:
-    # bool is an int subclass; a boolean seq would be a corrupt log, not a number.
-    if isinstance(value, bool) or not isinstance(value, int):
-        msg = f"{where}: expected an integer, found {type(value).__name__}"
-        raise StoreSchemaError(msg)
-    return value
-
-
-def _field(obj: dict[str, object], key: str, where: str) -> object:
-    if key not in obj:
-        msg = f"{where}: missing field {key!r}"
-        raise StoreSchemaError(msg)
-    return obj[key]
-
-
 def _read_json(path: Path) -> dict[str, object]:
     loaded: object = json.loads(path.read_text(encoding="utf-8"))
-    return _as_dict(loaded, path.name)
+    return as_dict(loaded, path.name, error=StoreSchemaError)
 
 
 class Store:
@@ -233,18 +196,48 @@ class Store:
         out: list[Finding] = []
         where = FINDINGS_FILE
         for line in self._read_lines(self.path / FINDINGS_FILE):
-            raw = _as_dict(json.loads(line), where)
-            evidence = _as_list(_field(raw, "evidence", where), where)
+            raw = as_dict(json.loads(line), where, error=StoreSchemaError)
+            evidence = as_list(
+                field(raw, "evidence", where, error=StoreSchemaError), where, error=StoreSchemaError
+            )
             out.append(
                 Finding(
-                    id=_as_str(_field(raw, "id", where), where),
-                    content_hash=_as_str(_field(raw, "content_hash", where), where),
-                    observation=_as_str(_field(raw, "observation", where), where),
-                    evidence=tuple(_as_str(e, where) for e in evidence),
-                    consequence=_as_str(_field(raw, "consequence", where), where),
-                    detectable_by=DetectableBy(_as_str(_field(raw, "detectable_by", where), where)),
-                    tier=Tier(_as_str(_field(raw, "tier", where), where)),
-                    call_ref=_as_str(raw.get("call_ref", ""), where),
+                    id=as_str(
+                        field(raw, "id", where, error=StoreSchemaError),
+                        where,
+                        error=StoreSchemaError,
+                    ),
+                    content_hash=as_str(
+                        field(raw, "content_hash", where, error=StoreSchemaError),
+                        where,
+                        error=StoreSchemaError,
+                    ),
+                    observation=as_str(
+                        field(raw, "observation", where, error=StoreSchemaError),
+                        where,
+                        error=StoreSchemaError,
+                    ),
+                    evidence=tuple(as_str(e, where, error=StoreSchemaError) for e in evidence),
+                    consequence=as_str(
+                        field(raw, "consequence", where, error=StoreSchemaError),
+                        where,
+                        error=StoreSchemaError,
+                    ),
+                    detectable_by=DetectableBy(
+                        as_str(
+                            field(raw, "detectable_by", where, error=StoreSchemaError),
+                            where,
+                            error=StoreSchemaError,
+                        )
+                    ),
+                    tier=Tier(
+                        as_str(
+                            field(raw, "tier", where, error=StoreSchemaError),
+                            where,
+                            error=StoreSchemaError,
+                        )
+                    ),
+                    call_ref=as_str(raw.get("call_ref", ""), where, error=StoreSchemaError),
                 )
             )
         return tuple(out)
@@ -327,19 +320,47 @@ class Store:
         out: list[Comparison | Retraction] = []
         where = LOG_FILE
         for line in self._read_lines(self.path / LOG_FILE):
-            raw = _as_dict(json.loads(line), where)
-            kind = _as_str(_field(raw, "kind", where), where)
-            seq = _as_int(_field(raw, "seq", where), where)
-            rater = _as_str(_field(raw, "rater_id", where), where)
-            session = _as_str(_field(raw, "session_id", where), where)
-            stamp = _as_str(_field(raw, "timestamp", where), where)
+            raw = as_dict(json.loads(line), where, error=StoreSchemaError)
+            kind = as_str(
+                field(raw, "kind", where, error=StoreSchemaError), where, error=StoreSchemaError
+            )
+            seq = as_int(
+                field(raw, "seq", where, error=StoreSchemaError), where, error=StoreSchemaError
+            )
+            rater = as_str(
+                field(raw, "rater_id", where, error=StoreSchemaError), where, error=StoreSchemaError
+            )
+            session = as_str(
+                field(raw, "session_id", where, error=StoreSchemaError),
+                where,
+                error=StoreSchemaError,
+            )
+            stamp = as_str(
+                field(raw, "timestamp", where, error=StoreSchemaError),
+                where,
+                error=StoreSchemaError,
+            )
             if kind == KIND_COMPARISON:
                 out.append(
                     Comparison(
                         seq=seq,
-                        left_id=_as_str(_field(raw, "left_id", where), where),
-                        right_id=_as_str(_field(raw, "right_id", where), where),
-                        outcome=Outcome(_as_str(_field(raw, "outcome", where), where)),
+                        left_id=as_str(
+                            field(raw, "left_id", where, error=StoreSchemaError),
+                            where,
+                            error=StoreSchemaError,
+                        ),
+                        right_id=as_str(
+                            field(raw, "right_id", where, error=StoreSchemaError),
+                            where,
+                            error=StoreSchemaError,
+                        ),
+                        outcome=Outcome(
+                            as_str(
+                                field(raw, "outcome", where, error=StoreSchemaError),
+                                where,
+                                error=StoreSchemaError,
+                            )
+                        ),
                         rater_id=rater,
                         session_id=session,
                         timestamp=stamp,
@@ -349,7 +370,11 @@ class Store:
                 out.append(
                     Retraction(
                         seq=seq,
-                        retracts_seq=_as_int(_field(raw, "retracts_seq", where), where),
+                        retracts_seq=as_int(
+                            field(raw, "retracts_seq", where, error=StoreSchemaError),
+                            where,
+                            error=StoreSchemaError,
+                        ),
                         rater_id=rater,
                         session_id=session,
                         timestamp=stamp,
@@ -392,16 +417,32 @@ class Store:
     def cuts(self) -> tuple[Cut, ...]:
         where = CUTS_FILE
         raw = _read_json(self.path / CUTS_FILE)
-        entries = _as_list(raw.get("cuts", []), where)
+        entries = as_list(raw.get("cuts", []), where, error=StoreSchemaError)
         out: list[Cut] = []
         for entry in entries:
-            item = _as_dict(entry, where)
+            item = as_dict(entry, where, error=StoreSchemaError)
             out.append(
                 Cut(
-                    name=CutName(_as_str(_field(item, "name", where), where)),
-                    above_id=_as_str(_field(item, "above_id", where), where),
-                    below_id=_as_str(_field(item, "below_id", where), where),
-                    calibration_note=_as_str(item.get("calibration_note", ""), where),
+                    name=CutName(
+                        as_str(
+                            field(item, "name", where, error=StoreSchemaError),
+                            where,
+                            error=StoreSchemaError,
+                        )
+                    ),
+                    above_id=as_str(
+                        field(item, "above_id", where, error=StoreSchemaError),
+                        where,
+                        error=StoreSchemaError,
+                    ),
+                    below_id=as_str(
+                        field(item, "below_id", where, error=StoreSchemaError),
+                        where,
+                        error=StoreSchemaError,
+                    ),
+                    calibration_note=as_str(
+                        item.get("calibration_note", ""), where, error=StoreSchemaError
+                    ),
                 )
             )
         return tuple(out)

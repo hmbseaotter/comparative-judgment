@@ -3,7 +3,7 @@
 - **Project:** comparative-judgment — severity scoring by pairwise comparison
 - **Identity:** A standalone tool that lets a rater assign defensible severity to findings by answering only "which of these two is worse?", never by picking a number on a scale.
 - **Spec:** `specs/comparative-judgment.md`
-- **Status:** D1–D15 recorded. D11–D13 at the phase-1 plan gate; D14–D15 at the sweep that followed it. D1–D8 from the /specify session of 2026-08-28; D9 settled at emit, resolving a contradiction the linter surfaced.
+- **Status:** D1–D16 recorded. D11–D13 at the phase-1 plan gate; D14–D15 at the sweep that followed; D16 during the build. D1–D8 from the /specify session of 2026-08-28; D9 settled at emit, resolving a contradiction the linter surfaced.
 - **Legend:** ✅ decided · 🔶 open / revisit · ⏭️ deferred to a later phase
 
 <!-- rules-required-from: D9 -->
@@ -303,7 +303,28 @@ Severity ownership went to a separate file because the tool must never mutate a 
 
 ---
 
-## Not checked — as of 0.4.0 @ D15
+## D16 — The iteration cap, set from measurement
+
+**Fork:** The MM iteration converges linearly. At a 10,000 cap it refused a *perfectly consistent* complete batch of about sixty items — not bad data, the best data possible. Raise the cap, accelerate the iteration, or accept the refusal?
+
+**Options considered**
+- **(A) Raise the cap, set from measurement.**
+- **(B) Accelerate the iteration** (SQUAREM, Newton, or similar).
+- **(C) Accept the refusal** and document the limit.
+
+**Decision ✅** — **(A). `MAX_ITER` = 200,000**, with the measurements recorded at the constant.
+
+**Why** — The surprising part is *which* input is slow. Realistic data — roughly ten appearances per item, pairs chosen near in rank, a rater who is not perfectly consistent — settles in **500–700 iterations** at both n=50 and n=200. The slow case is the opposite of pathological: a **complete graph with zero inconsistency**, where every item strictly beats every item below it and the scale wants to spread as wide as the prior allows. Measured: **8,708 iterations at n=50, 15,582 at n=75, 23,544 at n=100** — roughly linear in n.
+
+So the old cap failed on cleanliness, not on noise. (C) would mean the tool refuses its own best-case input, which is indefensible. (B) is real engineering but solves a problem that does not occur: each iteration is now cheap (the sparse rewrite took a 1,000-item fit from 47 seconds to 0.14), so the cap is a guard against a fit that will *never* settle, not a time budget. Reaching 200,000 requires a shape no hand-rated corpus can produce — a complete graph beyond n≈500, which is over 125,000 human comparisons.
+
+**Consequences / caveats** — A genuinely non-convergent fit now takes longer to fail. Acceptable: that path raises rather than returning, so a slow failure is still a correct one. If a future phase adds acceleration, this cap should be re-measured rather than carried forward.
+
+**Rule** — Two acceptance criteria, enforced by test: a perfectly consistent complete batch of sixty items fits without hitting the cap and recovers the correct order; and realistic sparse input converges in under 5,000 iterations. Both would have failed before this change.
+
+---
+
+## Not checked — as of 0.4.0 @ D16
 
 - **Bradley-Terry convergence behaviour was reasoned about, not tested.** The MM iteration is standard and convergent for connected graphs, but the interaction between the deterministic-ordering requirement and floating-point summation order has not been examined. The byte-identical-refit criterion is what will surface it.
 - **`textual` was assumed suitable and not evaluated** against the specific need for stable side-by-side panes with single-keypress capture and undo.
@@ -320,8 +341,8 @@ Severity ownership went to a separate file because the tool must never mutate a 
 
 ## Document status
 
-Decisions **D1–D15** recorded. The most consequential is **D2**, which overturns the source design's central algorithmic choice; **D5** additionally settles a gap in a second project's specification, which must be amended to match.
+Decisions **D1–D16** recorded. The most consequential is **D2**, which overturns the source design's central algorithmic choice; **D5** additionally settles a gap in a second project's specification, which must be amended to match.
 
 Spec: `specs/comparative-judgment.md`. Build prompt: `specs/comparative-judgment.build-prompt.md` (phase 1).
 
-Any new fork encountered during the build is appended here in the same shape, and from **D9** onward each entry ends with a `**Rule**` line naming what enforces it. Numbering continues from **D16**.
+Any new fork encountered during the build is appended here in the same shape, and from **D9** onward each entry ends with a `**Rule**` line naming what enforces it. Numbering continues from **D17**.
