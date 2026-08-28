@@ -1,0 +1,76 @@
+[project]
+name = "comparative-judgment"
+version = "0.1.0"
+description = "Assign severity by pairwise comparison, never by picking a number on a scale."
+readme = "README.md"
+requires-python = ">=3.12"
+license = { file = "LICENSE" }
+authors = [{ name = "Saso Gale" }]
+
+# Deliberately small. Note what is NOT here and never will be: any language-model
+# SDK. This tool's output is the ground truth an LLM judge is later measured
+# against, so a model inside it would make the measuring instrument depend on the
+# thing being measured. A test asserts the lockfile stays free of one.
+dependencies = [
+    "numpy>=2.0",
+    "pyyaml>=6.0",
+    "textual>=0.80",
+]
+
+[project.scripts]
+cj = "comparative_judgment.cli:main"
+
+[dependency-groups]
+dev = [
+    "mypy>=1.11",
+    "pytest>=8.0",
+    "ruff>=0.6",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/comparative_judgment"]
+
+# --- type discipline -------------------------------------------------------
+# strict is not decoration here: this package computes rates, thresholds and
+# midpoints, and a float slot silently receiving an int breaks fractional maths
+# in ways no test asserts directly.
+[tool.mypy]
+python_version = "3.12"
+strict = true
+warn_unreachable = true
+warn_unused_configs = true
+disallow_any_explicit = true
+files = ["src", "tests"]
+
+[[tool.mypy.overrides]]
+# textual ships types, but its plugin surface is loose enough that strict mode
+# trips on the framework rather than on our code.
+module = ["textual.*"]
+ignore_missing_imports = true
+
+# --- lint / format ---------------------------------------------------------
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = [
+    "E", "W",   # pycodestyle
+    "F",        # pyflakes
+    "I",        # import sorting
+    "B",        # bugbear
+    "UP",       # pyupgrade
+    "SIM",      # simplify
+    "RUF",      # ruff-specific
+    "ANN",      # annotations required
+    "PTH",      # prefer pathlib over os.path
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q --strict-markers"
