@@ -125,11 +125,6 @@ class Finding:
     tier: Tier
     call_ref: str = ""
 
-    @property
-    def key(self) -> tuple[str, str]:
-        """Identity for comparison purposes: an id *at a particular text*."""
-        return (self.id, self.content_hash)
-
 
 @dataclass(frozen=True, slots=True)
 class Comparison:
@@ -175,6 +170,40 @@ class Retraction:
     rater_id: str
     session_id: str
     timestamp: str
+
+
+@dataclass(frozen=True, slots=True)
+class RevisionAccepted:
+    """A record that a finding's text changed and a human accepted it anyway.
+
+    Loading a revised findings document is refused by default: judgments made
+    against the old wording would otherwise apply silently to new wording nobody
+    compared. Accepting is deliberate, and this is the audit trail for it —
+    who, when, which finding, and which text it moved between.
+
+    It lives in the same append-only log as comparisons and retractions, which
+    means an acceptance changes the log hash. A severity file naming that hash is
+    therefore tied to a history that *includes* the acceptance rather than one
+    that conceals it.
+    """
+
+    seq: int
+    finding_id: str
+    old_hash: str
+    new_hash: str
+    rater_id: str
+    session_id: str
+    timestamp: str
+
+
+@dataclass(frozen=True, slots=True)
+class Revision:
+    """A pending text change, detected but not yet accepted."""
+
+    finding_id: str
+    old_hash: str
+    new_hash: str
+    comparisons: int
 
 
 @dataclass(frozen=True, slots=True)

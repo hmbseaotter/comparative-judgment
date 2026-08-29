@@ -80,10 +80,16 @@ class TestBootstrapPairing:
         assert pair is not None
         assert set(pair) != {"F-0", "F-1"}
 
-    def test_is_deterministic(self) -> None:
-        """A resumed session must offer the comparison it would have offered."""
+    def test_is_deterministic_across_input_order(self) -> None:
+        """A resumed session must offer the comparison it would have offered.
+
+        Asserted across a REVERSED estimate list rather than by calling twice:
+        calling a pure function twice in one process only catches outright
+        randomness, while order-dependence is the failure that actually happens
+        -- an iteration over a set, or a sort without a stable tiebreak.
+        """
         estimates = _ladder_estimates(appearances=2)
-        assert next_bootstrap_pair(estimates) == next_bootstrap_pair(estimates)
+        assert next_bootstrap_pair(estimates) == next_bootstrap_pair(list(reversed(estimates)))
 
     def test_pair_order_is_stable(self) -> None:
         estimates = _ladder_estimates(appearances=2)
@@ -137,6 +143,19 @@ class TestPlacementPairing:
             is None
         )
 
+    def test_returns_none_when_the_item_is_the_only_anchor(self) -> None:
+        """Nothing to compare against but itself, which is not a judgment."""
+        assert (
+            next_placement_pair(
+                "F-0",
+                estimates=_ladder_estimates(5),
+                thresholds=(1.5,),
+                anchors=("F-0",),
+                comparisons_made=0,
+            )
+            is None
+        )
+
     def test_cut_anchor_ids_deduplicates(self) -> None:
         assert cut_anchor_ids(THREE_CUTS) == ("F-0", "F-1", "F-2", "F-3")
 
@@ -169,6 +188,26 @@ class TestThresholds:
         theta = {"F-0": 2.0, "F-1": 1.0, "F-2": 0.0, "F-3": -1.0}
         with pytest.raises(CutError, match="more than once"):
             thresholds((*THREE_CUTS, THREE_CUTS[0]), theta)
+
+    def test_crossed_boundaries_are_reported(self) -> None:
+        """Each cut individually valid, yet two boundaries have crossed.
+
+        Reachable only when cuts name UNRELATED pairs. With chained anchors
+        (F-0 over F-1, F-1 over F-2, F-2 over F-3) each cut being valid already
+        implies descending thresholds, so the guard cannot fire -- which is why
+        the first attempt at this test tripped the inversion check instead. But
+        nothing obliges a user to chain them, so the guard is reachable and the
+        test has to build the shape that reaches it.
+        """
+        unchained = (
+            Cut(CutName.CRITICAL_HIGH, "F-0", "F-1"),
+            Cut(CutName.HIGH_MEDIUM, "F-2", "F-3"),
+            Cut(CutName.MEDIUM_LOW, "F-4", "F-5"),
+        )
+        # Each pair descends internally; the middle boundary sits above the first.
+        theta = {"F-0": 1.0, "F-1": 0.9, "F-2": 5.0, "F-3": 4.9, "F-4": 0.2, "F-5": 0.1}
+        with pytest.raises(CutError, match="descending severity order"):
+            thresholds(unchained, theta)
 
     def test_an_unknown_anchor_is_reported(self) -> None:
         with pytest.raises(UnknownItemError, match="F-3"):

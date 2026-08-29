@@ -72,8 +72,12 @@ class TestHappyPath:
         assert all(f.tier is Tier.DEFECT for f in result.admitted)
 
     def test_empty_document_is_not_an_error(self) -> None:
-        assert parse_findings("") == parse_findings("")
-        assert parse_findings("").admitted == ()
+        # The former first line compared a pure function against itself and so
+        # could not fail. These assert the actual contract.
+        result = parse_findings("")
+        assert result.admitted == ()
+        assert result.excluded_questions == ()
+        assert result.excluded_count == 0
 
     def test_reads_from_disk(self, tmp_path: Path) -> None:
         path = tmp_path / "findings.yaml"

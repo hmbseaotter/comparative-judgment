@@ -3,7 +3,7 @@
 - **Project:** comparative-judgment — severity scoring by pairwise comparison
 - **Identity:** A standalone tool that lets a rater assign defensible severity to findings by answering only "which of these two is worse?", never by picking a number on a scale.
 - **Spec:** `specs/comparative-judgment.md`
-- **Status:** D1–D17 recorded. D11–D13 at the phase-1 plan gate; D14–D15 at the sweep that followed; D16 during the build. D1–D8 from the /specify session of 2026-08-28; D9 settled at emit, resolving a contradiction the linter surfaced.
+- **Status:** D1–D18 recorded. D11–D13 at the phase-1 plan gate; D14–D15 at the sweep that followed; D16 during the build. D1–D8 from the /specify session of 2026-08-28; D9 settled at emit, resolving a contradiction the linter surfaced.
 - **Legend:** ✅ decided · 🔶 open / revisit · ⏭️ deferred to a later phase
 
 <!-- rules-required-from: D9 -->
@@ -345,25 +345,50 @@ The general point is worth keeping: **when a decision moves work between phases,
 
 ---
 
-## Not checked — as of 0.4.1 @ D17
+## D18 — A changed finding is refused, and accepting is audited
 
-- **Bradley-Terry convergence behaviour was reasoned about, not tested.** The MM iteration is standard and convergent for connected graphs, but the interaction between the deterministic-ordering requirement and floating-point summation order has not been examined. The byte-identical-refit criterion is what will surface it.
-- **`textual` was assumed suitable and not evaluated** against the specific need for stable side-by-side panes with single-keypress capture and undo.
-- **The ~5 second performance target for 1,000 findings / 10,000 comparisons is an estimate**, not a benchmark; no fit has been run.
-- **The consuming harness's findings document format was decided here (D5) but that spec has not yet been amended.** Until it is, two specs disagree — this one names YAML, the other names no format at all.
-- **No literature review was performed.** The method, the ~10-appearances figure and the standard-error approach are taken from general knowledge of comparative judgment practice, not from cited sources. The source design's instruction was to treat the literature as a starting point; that has not been discharged.
-- **λ = 0.5 is a conventional regularisation strength, not a validated one** (D13). No sensitivity analysis was done; the effect on band placement near a cut is reasoned to be negligible and has not been measured.
-- **The appearance target of 10 (D11) is the same untested estimate assumption 3 records** — adopting it as the stopping condition makes it self-consistent, not verified. The measurement required by D8 is what will settle it.
-- **Cut inversion after a refit (D12) has never been observed**, only reasoned about; the reporting path for it is untested against a real occurrence.
-- **The phase-1 re-cut (D14) is an estimate, not a measurement** — nobody has built the trimmed scope, so "days, not weeks" remains a projection.
-- **Whether bands should be recomputed or frozen after a refit was decided in principle (freeze, propose revisions) but not specified in requirements** — no requirement or acceptance criterion covers the revision-proposal path.
+**Fork:** A post-build sweep proved that reloading a revised findings document silently carried judgments made against the *old* wording onto the new. The requirement "a changed content hash creates a new item" was specified, carried an acceptance criterion, and was never implemented — and the phase was reported complete against it, wrongly. Implement it as written, or change it?
+
+**Options considered**
+- **(A) Refuse the load, name the changed findings, require an explicit flag; record the acceptance in the log.**
+- **(B) Record the hash on every comparison so identity becomes `(id, hash)`** — the full original intent.
+- **(C) Warn and continue.**
+- **(D) Strict fork exactly as specified.**
+
+**Decision ✅** — **(A).** `cj load` refuses, naming each changed finding and how many comparisons were made against its old text. `--accept-revisions` proceeds, and each acceptance appends a `revision` record to the log carrying finding id, both hashes, rater id and timestamp.
+
+**Why** — The requirement as written was *wrong*, not merely unbuilt. Strict forking (D) is hostile to normal work: correcting a spelling mistake would orphan every judgment about that finding, which teaches a rater not to improve their own prose. (B) is the most correct model and carries the same practical objection at much greater cost. (C) is the silent behaviour with a message attached, and a warning in a long load output is one nobody reads. Nothing can distinguish a typo from a rewrite automatically — so the tool refuses and a **human decides**, which is the only actor that can tell them apart.
+
+The audit trail was the project owner's addition and it materially improves the option. Because acceptances live in the same append-only log as comparisons, **an acceptance changes the log hash** — so a severity file naming that hash is tied to a history that includes the acceptance rather than one that conceals it. Who, when, which finding, and which text it moved between are all recoverable.
+
+Only *judged* findings are reported. A change to something nobody compared costs nothing, and flagging it would train a rater to wave the flag through by reflex.
+
+**Consequences / caveats** — Amends the requirement from "SHALL create a new item" to "SHALL refuse unless explicitly accepted, and SHALL record the acceptance". Carrying judgments onto materially rewritten text is now *possible* — it is a human's call, made visibly, rather than the tool's, made silently.
+
+**Rule** — Three acceptance criteria, enforced by test: a changed judged finding is refused by name; accepting appends a revision record with rater and both hashes; accepting changes the log hash. A fourth asserts an unjudged finding may change freely.
 
 ---
 
+## Not checked — as of 0.5.0 @ D18
+
+*Refreshed after the phase-1 build and the sweep that followed it. Four earlier entries were retired because the build resolved them: convergence is now measured (D16), the performance target is benchmarked at 0.14s rather than estimated, the consuming harness's spec was amended, and the trimmed phase was actually built.*
+
+- **The terminal UI has never been run by a human.** Its formatting and its delegation to the session are tested, but nobody has watched it render. `textual` remains an assumed-suitable choice, now assumed at one further remove.
+- **`MAX_ITER` = 200,000 is extrapolated past n=100.** Measured at n=50, 75 and 100; the trend beyond that is inference.
+- **`PLACEMENT_COMPARISONS` = 3 is a fixed count, not a measured optimum.** The adaptive version is phase 3; until then every placement spends exactly three judgments even when the first two settle it.
+- **λ = 0.5 is conventional, not validated.** No sensitivity analysis was run; the claim that it does not change which side of a cut an item falls is reasoned rather than measured.
+- **The appearance target of 10 is the same untested estimate it was adopted from.** The only real data point so far — five findings at target 4, costing 2.0 comparisons per item — says nothing about a corpus of seventy.
+- **Cut inversion has never been observed in use**, only constructed in tests.
+- **No literature review was performed.** The method and the ten-appearances figure come from general knowledge of comparative judgment practice, not from cited sources.
+- **Whether bands are recomputed or frozen after a refit was decided in principle** (freeze, propose revisions) and is still not written as a requirement.
+- **Carrying judgments across an accepted revision (D18) is unmeasured.** Nobody knows how far text can drift before old judgments stop meaning anything, and the tool tells a rater only that the hashes differ — not how large the change was.
+- **The uncovered 2%** is the `compare` subcommand's launch path, textual's `compose`, and the `__main__` guard — reachable only by starting a real terminal app.
+- **Not swept this pass: the harness project.** Its specs were not re-read. The interface scanner passes, but that checks six keys and two claims, not agreement in general.
+
 ## Document status
 
-Decisions **D1–D17** recorded. The most consequential is **D2**, which overturns the source design's central algorithmic choice; **D5** additionally settles a gap in a second project's specification, which must be amended to match.
+Decisions **D1–D18** recorded. The most consequential is **D2**, which overturns the source design's central algorithmic choice; **D5** additionally settles a gap in a second project's specification, which must be amended to match.
 
 Spec: `specs/comparative-judgment.md`. Build prompt: `specs/comparative-judgment.build-prompt.md` (phase 1).
 
-Any new fork encountered during the build is appended here in the same shape, and from **D9** onward each entry ends with a `**Rule**` line naming what enforces it. Numbering continues from **D18**.
+Any new fork encountered during the build is appended here in the same shape, and from **D9** onward each entry ends with a `**Rule**` line naming what enforces it. Numbering continues from **D19**.

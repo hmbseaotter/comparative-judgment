@@ -13,6 +13,7 @@ carry the risk:
 from __future__ import annotations
 
 import itertools
+import math
 import random
 import time
 
@@ -96,7 +97,9 @@ class TestRegularisation:
         ]
         result = fit(names, judgments)
         top = result.theta()["top"]
-        assert top == pytest.approx(top)  # not nan
+        # isfinite, not an approx self-comparison: it says what is meant, and it
+        # catches inf as well as nan. Unregularised, this value diverges.
+        assert math.isfinite(top)
         assert abs(top) < 100.0
 
     def test_an_item_that_loses_everything_is_finite(self) -> None:

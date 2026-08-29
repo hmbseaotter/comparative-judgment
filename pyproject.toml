@@ -29,6 +29,8 @@ dev = [
     # capability: mypy --strict is a specified gate and cannot check a
     # dependency it has no types for.
     "types-PyYAML>=6.0",
+    # Measures whether the tests reach the code, rather than trusting that they do.
+    "pytest-cov>=5.0",
 ]
 
 [build-system]

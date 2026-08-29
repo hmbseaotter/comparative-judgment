@@ -1,7 +1,7 @@
 # specification: comparative-judgment — severity scoring by pairwise comparison
 
 ## metadata
-- Spec version: 0.4.1
+- Spec version: 0.5.0
 - Status: DRAFT
 - Last updated: 2026-08-28
 - Author(s): Saso Gale
@@ -9,7 +9,7 @@
 - Build class: build-required
 - Role: n/a — a scoring utility; no persona sharpens it. Its one stance-like property is that it never asks for a number, only for a comparison, and that is a requirement rather than a voice.
 - Produced by: /specify @ f72b756
-- Last swept: 2026-08-28 @ 0.4.1 @ D17
+- Last swept: 2026-08-28 @ 0.5.0 @ D18
 - Artifacts land in: the `comparative-judgment` repository root
 - Visibility: public (currently private, flipped when ready). The store path is always supplied by the caller — there is no implicit fallback — but the conventional location used by the documentation and examples is gitignored, so following the docs cannot cause an accidental commit. A general-purpose severity tool will be pointed at real production findings by someone, and a committing default is a trap.
 - Decision record: `specs/comparative-judgment.decisions.md`
@@ -104,7 +104,8 @@ Persistent by design — the comparison log *is* the product, and the ordering i
 - WHEN [P1] the fit is run, the system SHALL apply a symmetric prior of λ pseudo-wins and λ pseudo-losses per item (λ = 0.5) against a virtual opponent at the scale origin, so that an item winning or losing all of its comparisons still receives a finite scale value, and SHALL state λ in its documentation rather than only in code.
 - WHEN [P1] a rater records a comparison, the system SHALL persist it before presenting the next pair.
 - WHEN [P1] a rater retracts a comparison, the system SHALL append a retraction record and SHALL NOT delete the original.
-- WHEN [P1] a finding's content hash differs from the stored hash for its identifier, the system SHALL create a new item and SHALL retain prior comparisons against the previous version.
+- WHEN [P1] a finding's content hash differs from the stored hash for an identifier that has already been judged, the system SHALL refuse the load, name each changed finding with its comparison count, and SHALL proceed only when revisions are explicitly accepted.
+- WHEN [P1] a revision is explicitly accepted, the system SHALL append a record carrying the finding identifier, both content hashes, the rater identifier and a timestamp.
 - WHEN [P1] the comparison graph contains more than one connected component, the system SHALL name the components and SHALL NOT report scale values as comparable across them.
 - WHEN [P1] band cuts are set, the system SHALL require exactly three absolute judgments and SHALL display findings on both sides of each cut.
 - WHEN [P1] a cut is stored, the system SHALL store it as the ordered pair of findings either side of it, and SHALL derive its threshold as the midpoint of those two findings' current scale values at each fit.
@@ -126,6 +127,7 @@ Persistent by design — the comparison log *is* the product, and the ordering i
 - IF [P1] the fit does not converge within its iteration cap, the system SHALL report non-convergence and SHALL NOT emit scale values.
 - IF [P1] a fit inverts a cut's anchor pair, the system SHALL report that cut by name and SHALL NOT silently re-order it.
 - IF [P1] a finding lacks `id`, `observation` or `consequence` text, the system SHALL refuse to admit it to a batch and SHALL name the finding.
+- IF [P1] a comparison names the same finding on both sides, the system SHALL refuse it.
 - IF [P1] a finding's `tier` is `question`, the system SHALL exclude it from the batch, from the fit and from the anchor set, and SHALL report how many were excluded.
 - IF [P1] a store is opened whose schema version is unrecognised, the system SHALL refuse to write and SHALL report the version mismatch.
 - IF [P1] the caller supplies no store path, the system SHALL fail with a named error rather than defaulting to a path inside the repository.
@@ -171,7 +173,9 @@ Persistent by design — the comparison log *is* the product, and the ordering i
 - [ ] [P1] Two fits over an unchanged log produce byte-identical scale values and bands.
 - [ ] [P2] Standard errors are byte-identical across two fits over an unchanged log.
 - [ ] [P1] A comparison log built in a different insertion order, containing the same judgments, produces the same bands.
-- [ ] [P1] A finding whose text is edited produces a new item, and comparisons made against the previous text remain attached to it.
+- [ ] [P1] A finding whose text is edited after being judged causes the load to be refused by name with its comparison count; an unjudged finding may change freely.
+- [ ] [P1] Accepting a revision appends a record carrying both hashes and the rater identifier, and changes the comparison-log hash.
+- [ ] [P1] A comparison naming the same finding on both sides is refused.
 - [ ] [P1] A retracted comparison is absent from the fit while its record remains present in the log.
 - [ ] [P1] A tie is recorded, excluded from the fit, and counted in the tie rate.
 - [ ] [P1] A deliberately intransitive triad (A>B, B>C, C>A) is accepted without error rather than rejected, and leaves the items it involves indistinguishable on the scale.
@@ -253,6 +257,7 @@ n/a (build-required — see the build prompt)
 ---
 
 ## changelog
+- 0.5.0 (2026-08-28): post-build sweep, sixteen findings. The content-hash requirement was replaced (D18) — specified, never implemented, and wrong as written: strict forking would orphan every judgment about a finding whenever a typo was fixed. A changed judged finding now refuses the load and accepting is recorded in the append-only log. Self-comparison refused. The sequence counter is cached, ending an O(n-squared) session cost. Dead code removed. Coverage 75% to 98%.
 - 0.4.1 (2026-08-28): the intransitivity acceptance criterion split across the two phases it actually spans (D17). Its misfit half became unreachable in phase 1 when D14 moved standard errors to phase 2, and the wording did not follow. Phase 1 built and verified: 30 of 31 criteria passed before this split, 31 of 31 after.
 - 0.4.0 (2026-08-28): phase 1 re-cut back toward the MVP the consuming project's sequencing decision assumed (D14) — standard errors, the session timer and the remaining-comparisons estimate move to phase 2. A cross-repository interface scanner added (D15). A stale assumption about the harness's findings format promoted to a settled prior decision.
 - 0.3.0 (2026-08-28): three decisions taken at the phase-1 plan gate written in as requirements — the cold-start stopping condition (D11), cuts stored as anchor pairs rather than thresholds (D12), and a regularised Bradley-Terry fit (D13). D13 is not a refinement: without it the estimate diverges for any item winning or losing all its comparisons, which on a severity scale is guaranteed at both ends.

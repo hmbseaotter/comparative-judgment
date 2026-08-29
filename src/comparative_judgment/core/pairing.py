@@ -86,9 +86,9 @@ def next_bootstrap_pair(
             candidate.finding_id,
         )
 
+    # Never empty: `fit` produces unique ids, and fewer than two estimates
+    # returned above.
     candidates = [e for e in estimates if e.finding_id != focus.finding_id]
-    if not candidates:
-        return None
     partner = min(candidates, key=rank)
     return _ordered(focus.finding_id, partner.finding_id)
 

@@ -49,6 +49,40 @@ def cmd_init(args: argparse.Namespace) -> int:
 def cmd_load(args: argparse.Namespace) -> int:
     store = Store.open(Path(args.store))
     result = load_findings(Path(args.findings))
+
+    # A finding whose text changed since it was judged is refused by default.
+    # Carrying the old judgments over is a decision a human makes, not one the
+    # tool makes quietly -- and accepting it is written into the append-only log
+    # so the acceptance is auditable rather than invisible.
+    revisions = store.pending_revisions(result.admitted)
+    if revisions and not args.accept_revisions:
+        print("REFUSED: text has changed on finding(s) that were already judged.", file=sys.stderr)
+        for revision in revisions:
+            print(
+                f"  {revision.finding_id}: {revision.old_hash[:12]} -> {revision.new_hash[:12]}"
+                f"  ({revision.comparisons} comparison(s) made against the old text)",
+                file=sys.stderr,
+            )
+        print(file=sys.stderr)
+        print(
+            "Those judgments were made against wording nobody has compared since.", file=sys.stderr
+        )
+        print(
+            "Re-run with --accept-revisions to carry them over; the acceptance is", file=sys.stderr
+        )
+        print(
+            "recorded in the log with your rater id and the hashes it moved between.",
+            file=sys.stderr,
+        )
+        return 1
+
+    for revision in revisions:
+        store.append_revision(revision, rater_id=args.rater, session_id="load")
+        print(
+            f"accepted revision: {revision.finding_id} "
+            f"({revision.comparisons} prior comparison(s) carried over)"
+        )
+
     store.put_findings(result.admitted)
     store.put_load_summary(result.excluded_questions)
 
@@ -212,6 +246,12 @@ def build_parser() -> argparse.ArgumentParser:
     load = subparsers.add_parser("load", help="read a YAML findings document")
     load.add_argument("--store", required=True)
     load.add_argument("--findings", required=True)
+    load.add_argument("--rater", default="unnamed", help="who is accepting any revisions")
+    load.add_argument(
+        "--accept-revisions",
+        action="store_true",
+        help="carry judgments over onto changed text (recorded in the log)",
+    )
     load.set_defaults(func=cmd_load)
 
     compare = subparsers.add_parser("compare", help="judge pairs in the terminal")

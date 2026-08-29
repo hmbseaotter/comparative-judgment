@@ -42,6 +42,8 @@ from comparative_judgment.core.models import (
     Finding,
     Outcome,
     Retraction,
+    Revision,
+    RevisionAccepted,
     Tier,
 )
 from comparative_judgment.core.shapes import (
@@ -62,6 +64,7 @@ CUTS_FILE: Final[str] = "cuts.json"
 #: happened — two files would need their orders reconciled on every read.
 KIND_COMPARISON: Final[str] = "comparison"
 KIND_RETRACTION: Final[str] = "retraction"
+KIND_REVISION: Final[str] = "revision"
 
 Clock = Callable[[], str]
 
@@ -104,6 +107,7 @@ class Store:
     def __init__(self, path: Path, *, clock: Clock = utc_now) -> None:
         self.path = path
         self._clock = clock
+        self._seq: int | None = None
 
     # -- lifecycle ---------------------------------------------------------
 
@@ -268,7 +272,16 @@ class Store:
     # -- the log -----------------------------------------------------------
 
     def _next_seq(self) -> int:
-        return len(self._read_lines(self.path / LOG_FILE)) + 1
+        """The next sequence number, counted once and then tracked.
+
+        Read from disk on first use so a reopened store continues the sequence,
+        then held in memory. Counting the file on every append made each one
+        O(n) and a whole session O(n-squared).
+        """
+        if self._seq is None:
+            self._seq = len(self._read_lines(self.path / LOG_FILE))
+        self._seq += 1
+        return self._seq
 
     def _append_log(self, payload: dict[str, object]) -> None:
         """Append one line and flush it to disk before returning.
@@ -290,6 +303,12 @@ class Store:
         rater_id: str,
         session_id: str,
     ) -> Comparison:
+        if left_id == right_id:
+            msg = (
+                f"cannot compare {left_id!r} with itself: a self-comparison carries no "
+                "judgment but would still enter the win matrix and move the scale"
+            )
+            raise UnknownItemError(msg)
         known = {f.id for f in self.findings()}
         for item in (left_id, right_id):
             if item not in known:
@@ -338,9 +357,70 @@ class Store:
         )
         return record
 
-    def log(self) -> tuple[Comparison | Retraction, ...]:
+    def pending_revisions(self, incoming: Iterable[Finding]) -> tuple[Revision, ...]:
+        """Findings whose text has changed since they were last stored.
+
+        Only findings that have actually been *judged* are reported: a change to
+        something nobody compared costs nothing, and reporting it would train a
+        rater to wave the acceptance flag through by reflex.
+        """
+        stored = {f.id: f.content_hash for f in self.findings()}
+        counts: dict[str, int] = {}
+        for comparison in self.active_comparisons():
+            for item in (comparison.left_id, comparison.right_id):
+                counts[item] = counts.get(item, 0) + 1
+
+        found: list[Revision] = []
+        for finding in incoming:
+            previous = stored.get(finding.id)
+            if previous is None or previous == finding.content_hash:
+                continue
+            judged = counts.get(finding.id, 0)
+            if judged == 0:
+                continue
+            found.append(
+                Revision(
+                    finding_id=finding.id,
+                    old_hash=previous,
+                    new_hash=finding.content_hash,
+                    comparisons=judged,
+                )
+            )
+        return tuple(sorted(found, key=lambda r: r.finding_id))
+
+    def append_revision(
+        self, revision: Revision, *, rater_id: str, session_id: str
+    ) -> RevisionAccepted:
+        """Record that a human accepted a text change on a judged finding."""
+        record = RevisionAccepted(
+            seq=self._next_seq(),
+            finding_id=revision.finding_id,
+            old_hash=revision.old_hash,
+            new_hash=revision.new_hash,
+            rater_id=rater_id,
+            session_id=session_id,
+            timestamp=self._clock(),
+        )
+        self._append_log(
+            {
+                "kind": KIND_REVISION,
+                "seq": record.seq,
+                "finding_id": record.finding_id,
+                "old_hash": record.old_hash,
+                "new_hash": record.new_hash,
+                "rater_id": record.rater_id,
+                "session_id": record.session_id,
+                "timestamp": record.timestamp,
+            }
+        )
+        return record
+
+    def accepted_revisions(self) -> tuple[RevisionAccepted, ...]:
+        return tuple(e for e in self.log() if isinstance(e, RevisionAccepted))
+
+    def log(self) -> tuple[Comparison | Retraction | RevisionAccepted, ...]:
         """Everything recorded, in the order it happened."""
-        out: list[Comparison | Retraction] = []
+        out: list[Comparison | Retraction | RevisionAccepted] = []
         where = LOG_FILE
         for line in self._read_lines(self.path / LOG_FILE):
             raw = as_dict(json.loads(line), where, error=StoreSchemaError)
@@ -383,6 +463,30 @@ class Store:
                                 where,
                                 error=StoreSchemaError,
                             )
+                        ),
+                        rater_id=rater,
+                        session_id=session,
+                        timestamp=stamp,
+                    )
+                )
+            elif kind == KIND_REVISION:
+                out.append(
+                    RevisionAccepted(
+                        seq=seq,
+                        finding_id=as_str(
+                            field(raw, "finding_id", where, error=StoreSchemaError),
+                            where,
+                            error=StoreSchemaError,
+                        ),
+                        old_hash=as_str(
+                            field(raw, "old_hash", where, error=StoreSchemaError),
+                            where,
+                            error=StoreSchemaError,
+                        ),
+                        new_hash=as_str(
+                            field(raw, "new_hash", where, error=StoreSchemaError),
+                            where,
+                            error=StoreSchemaError,
                         ),
                         rater_id=rater,
                         session_id=session,
