@@ -1,0 +1,58 @@
+name: checks
+
+# The three toolchain gates are acceptance criteria, and until this file existed
+# they were enforced by someone remembering to run three commands. They all
+# passed, which was a fact about that day rather than a property of the
+# repository.
+#
+# Two versions on purpose: the project declares `requires-python = ">=3.12"` and
+# type-checks against 3.12, while development happens on a newer interpreter. A
+# single-version matrix would mean the suite never ran on the version the types
+# describe, or never on the one it is actually developed against.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.12", "3.13"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Sync the locked environment
+        # --frozen so a drifted lockfile fails here rather than being silently
+        # re-resolved, which would defeat the exact-pin criterion this project
+        # asserts in its own test suite.
+        run: uv sync --frozen --python ${{ matrix.python-version }}
+
+      - name: Tests
+        run: uv run --frozen pytest -q
+
+      - name: Types
+        run: uv run --frozen mypy --strict src
+
+      - name: Lint
+        run: uv run --frozen ruff check
+
+      - name: Format
+        run: uv run --frozen ruff format --check
