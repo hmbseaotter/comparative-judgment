@@ -117,7 +117,9 @@ Human effort is comparable: at ~10 appearances per item, 50 findings costs ~250 
 
 Severity ownership went to a separate file because the tool must never mutate a document it does not own: that keeps provenance explicit (which run, which anchor set, which log), and it lets the tool work on corpora where it has no write access.
 
-**Consequences / caveats** — **This settles a gap in the consuming harness's specification, which names no format for its findings document; that spec needs amending to match.** A Markdown table view can be generated from the YAML for readability without becoming the source of truth.
+**Consequences / caveats** — ~~This settles a gap in the consuming harness's specification, which names no format for its findings document; that spec needs amending to match.~~ **Discharged.** The harness settled the same format as its own D22 and pushed it; both specifications now name YAML. A Markdown table view can be generated from the YAML for readability without becoming the source of truth.
+
+> **Stale until 2026-08-28.** The struck sentence is the **fourth** member of the class D15 was built to close — a claim about another repository that stopped being true when that repository moved. D15's own reasoning names three instances and cites this exact sentence as the third; the 0.4.0 repair fixed its twin in the assumptions block and missed this copy. It survived because the scanner is pointed at the two *specs* and never at the two decision records, and it was found by a later audit widening that universe by one file per side. The generalisable part is not the sentence: it is that **the detector's coverage was narrower than the rule it enforces**, which is the same shape D24 records elsewhere in this document. The scanner now takes a path list.
 
 ---
 
