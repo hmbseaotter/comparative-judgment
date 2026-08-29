@@ -87,10 +87,16 @@ class TestSchemaGuard:
 
 
 class TestMalformedStore:
-    """A corrupt store is a named refusal, not a KeyError three frames deeper.
+    """Well-formed JSON of the wrong SHAPE is a named refusal, not a KeyError.
 
     The store is append-only and shared across sessions, so the failure a reader
     sees should say which file and which field gave up.
+
+    Scope worth stating, because this docstring used to claim more than the cases
+    delivered: every case here feeds valid JSON that says the wrong thing.
+    Syntactically invalid JSON — the corruption a crash actually produces, by
+    truncating the line being flushed — lives in `test_refusals.py`, which is
+    where it was missing entirely.
     """
 
     def test_unknown_log_kind_is_refused(self, store: Store) -> None:

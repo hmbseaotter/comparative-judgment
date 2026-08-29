@@ -61,7 +61,12 @@ class TestImmutability:
 
 
 class TestContentHash:
-    """Identity is an id *at a particular text*, so re-editing forks the item."""
+    """Identity is an id *at a particular text*.
+
+    The hash is what lets a load notice the text moved and refuse until a human
+    accepts it (D18). It is not itself a fork: forking automatically would orphan
+    every judgment about a finding whose spelling someone corrected.
+    """
 
     def test_same_text_same_hash(self) -> None:
         assert _finding().content_hash == _finding().content_hash

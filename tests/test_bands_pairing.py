@@ -237,14 +237,17 @@ class TestBandAssignment:
         assert band_for(1.5, self.CUT_VALUES) == Band.HIGH
         assert band_for(-0.5, self.CUT_VALUES) == Band.LOW
 
+    def _values(self, estimates: list[Estimate]) -> tuple[float, ...]:
+        return thresholds(THREE_CUTS, {e.finding_id: e.theta for e in estimates})
+
     def test_every_compared_item_gets_a_band(self) -> None:
         estimates = _ladder_estimates(appearances=4)
-        assigned = assign_bands(estimates, THREE_CUTS)
+        assigned = assign_bands(estimates, self._values(estimates))
         assert len(assigned) == len(estimates)
 
     def test_an_item_with_no_comparisons_gets_no_band(self) -> None:
         """The prior put it at the origin; banding it would report the prior."""
         estimates = [*_ladder_estimates(appearances=4), _est("never-judged", 0.0, 0)]
-        assigned = assign_bands(estimates, THREE_CUTS)
+        assigned = assign_bands(estimates, self._values(estimates))
         assert "never-judged" not in {a.finding_id for a in assigned}
         assert unplaced(estimates) == ("never-judged",)

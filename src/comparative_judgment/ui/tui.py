@@ -23,6 +23,7 @@ from textual.binding import Binding, BindingType
 from textual.containers import Horizontal, Vertical
 from textual.widgets import Footer, Static
 
+from comparative_judgment.core.errors import NothingToJudgeError
 from comparative_judgment.core.models import Finding, Outcome, PairForReview
 from comparative_judgment.core.session import Session
 
@@ -92,13 +93,35 @@ class ComparisonApp(App[int]):
         progress = self._session.progress()
 
         if pair is None:
-            self.query_one("#progress", Static).update(
-                f"batch complete — {progress.comparisons_spent} comparisons, "
-                f"every item at {progress.appearance_target} appearances"
-            )
-            self.query_one("#left", Static).update(
-                "Nothing left to judge.\n\nNext: set the three band cuts with `cj cuts`."
-            )
+            # There is no pair for three different reasons, and only one of them
+            # is good news. Saying "complete" for all three is how a rater ends a
+            # sitting believing a broken cut was a finished batch.
+            if progress.blocked_reason:
+                self.query_one("#progress", Static).update(
+                    f"BLOCKED — {progress.comparisons_spent} comparisons recorded, "
+                    "and nothing further can be judged"
+                )
+                self.query_one("#left", Static).update(
+                    f"{progress.blocked_reason}\n\n"
+                    "Nothing is lost: every judgment is in the log. Fix the cuts with "
+                    "`cj cuts` and this picks up where it stopped."
+                )
+            elif progress.placing:
+                self.query_one("#progress", Static).update(
+                    f"placement complete — {progress.comparisons_spent} comparisons; "
+                    "every item has been placed against the cuts"
+                )
+                self.query_one("#left", Static).update(
+                    "Nothing left to place.\n\nNext: `cj bands`, then `cj export`."
+                )
+            else:
+                self.query_one("#progress", Static).update(
+                    f"batch complete — {progress.comparisons_spent} comparisons, "
+                    f"every item at {progress.appearance_target} appearances"
+                )
+                self.query_one("#left", Static).update(
+                    "Nothing left to judge.\n\nNext: set the three band cuts with `cj cuts`."
+                )
             self.query_one("#right", Static).update("")
             return
 
@@ -123,9 +146,16 @@ class ComparisonApp(App[int]):
     # -- actions -----------------------------------------------------------
 
     def _record(self, outcome: Outcome) -> None:
-        if self._session.next_pair() is None:
+        """Pass the keypress through; a press after the end is inert.
+
+        The session is asked once, not twice: checking `next_pair()` here and
+        letting `record()` derive it again doubled the per-keypress work, and the
+        refusal is already a named one to catch.
+        """
+        try:
+            self._session.record(outcome)
+        except NothingToJudgeError:
             return
-        self._session.record(outcome)
         self._refresh()
 
     def action_choose_left(self) -> None:

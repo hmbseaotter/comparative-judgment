@@ -100,9 +100,7 @@ def band_for(theta_value: float, cut_thresholds: Sequence[float]) -> Band:
 
 def assign_bands(
     estimates: Sequence[Estimate],
-    cuts: Sequence[Cut],
-    *,
-    require_comparison: bool = True,
+    cut_values: Sequence[float],
 ) -> tuple[BandAssignment, ...]:
     """Band every item that has been compared at least once.
 
@@ -110,9 +108,11 @@ def assign_bands(
     it there, and banding it would report the prior as a judgment. Those are
     skipped rather than defaulted, and the caller can see which by comparing
     counts.
+
+    Takes thresholds rather than cuts because the caller already has to derive
+    them — deriving them again here computed the same values twice per placement
+    and gave a `CutError` two places to come from.
     """
-    theta = {e.finding_id: e.theta for e in estimates}
-    cut_values = thresholds(cuts, theta)
     return tuple(
         BandAssignment(
             finding_id=e.finding_id,
@@ -120,7 +120,7 @@ def assign_bands(
             theta=e.theta,
         )
         for e in estimates
-        if not require_comparison or e.appearances > 0
+        if e.appearances > 0
     )
 
 

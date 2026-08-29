@@ -15,7 +15,7 @@ from pathlib import Path
 
 import pytest
 
-from comparative_judgment.core.errors import CutError
+from comparative_judgment.core.errors import CutError, NothingToJudgeError
 from comparative_judgment.core.findings import parse_findings
 from comparative_judgment.core.models import (
     Cut,
@@ -121,7 +121,7 @@ class TestRecording:
         store = Store.create(tmp_path / "s", clock=_fixed_clock)
         store.put_findings(parse_findings(_document(2)).admitted)
         finished = Session(store, rater_id="r", appearance_target=0)
-        with pytest.raises(ValueError, match="nothing left"):
+        with pytest.raises(NothingToJudgeError, match="nothing left"):
             finished.record(Outcome.LEFT)
 
 
@@ -174,8 +174,30 @@ class TestStructuredOutput:
             return f"<section><p>{p.left.observation}</p><ul>{fragments}</ul></section>"
 
         text, markup = as_plain_text(pair), as_markup(pair)
-        assert "|" in text
-        assert markup.startswith("<section>") and "<li>" in markup
+
+        # The earlier version of this test asserted `"|" in text` and
+        # `markup.startswith("<section>")` -- both true of strings the test had
+        # just built with those literals in them, and true no matter what the
+        # session returned. It could not fail, so its docstring's claim was
+        # carried entirely by the prose.
+        #
+        # What actually has to hold: neither rendering appears in what the
+        # session handed over. If the core ever returned display text, one of
+        # these formatters would be laying out the other's output.
+        assert text not in pair.left.observation
+        assert markup not in pair.left.observation
+        assert "|" not in pair.left.observation
+        assert "<" not in pair.left.observation
+
+        # And the fields arrive as typed pieces, not as one preformatted blob.
+        assert isinstance(pair.left.evidence, tuple)
+        assert all(isinstance(fragment, str) for fragment in pair.left.evidence)
+        assert "\n" not in pair.left.observation
+
+        # The two renderings are genuinely different views of the same object.
+        assert text != markup
+        assert pair.left.observation in text
+        assert pair.left.observation in markup
 
     def test_evidence_reaches_the_front_end_as_separate_fragments(self, session: Session) -> None:
         pair = session.next_pair()

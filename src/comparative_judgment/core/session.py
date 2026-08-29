@@ -24,26 +24,46 @@ comparison it would have offered had it never stopped — and there is no
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Final
 
-from comparative_judgment.core import bands, pairing
-from comparative_judgment.core.errors import CutError, UnknownItemError
+from comparative_judgment.core import bands, graph, pairing, severity
+from comparative_judgment.core.errors import (
+    CutError,
+    DisconnectedComparisonsError,
+    NothingToJudgeError,
+    UnknownItemError,
+)
+from comparative_judgment.core.findings import load_findings
 from comparative_judgment.core.fit import FitResult, fit
 from comparative_judgment.core.models import (
+    CUT_ORDER,
     BandAssignment,
     Comparison,
     Cut,
+    CutName,
     Estimate,
     Finding,
     Outcome,
     PairForReview,
     Progress,
+    Removal,
+    RemovalAccepted,
     Retraction,
+    Revision,
+    RevisionAccepted,
 )
 from comparative_judgment.core.store import Store
 
 DEFAULT_SESSION_ID: Final[str] = "session"
+
+#: Re-exported so a front end can name the default without importing `pairing`.
+#: The seam is the whole contract: a presentation layer that reaches into a core
+#: module for one constant is a presentation layer that will reach in for a
+#: function next.
+DEFAULT_APPEARANCE_TARGET: Final[int] = pairing.APPEARANCE_TARGET
 
 
 @dataclass(frozen=True, slots=True)
@@ -53,6 +73,24 @@ class Placement:
     assignments: tuple[BandAssignment, ...]
     unplaced: tuple[str, ...]
     thresholds: tuple[float, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class LoadOutcome:
+    """What a load did, or refused to do.
+
+    Structured rather than printed, like everything else crossing this seam. The
+    *policy* — refuse a changed or vanished judged finding unless a human accepts
+    it — lives here; only the wording of the refusal belongs to a front end.
+    """
+
+    applied: bool
+    admitted: int
+    excluded_questions: tuple[str, ...]
+    pending_revisions: tuple[Revision, ...]
+    pending_removals: tuple[Removal, ...]
+    accepted_revisions: tuple[RevisionAccepted, ...]
+    accepted_removals: tuple[RemovalAccepted, ...]
 
 
 class Session:
@@ -71,6 +109,43 @@ class Session:
         self._session_id = session_id
         self._target = appearance_target
         self._fit_cache: FitResult | None = None
+
+    @classmethod
+    def open(
+        cls,
+        path: Path,
+        *,
+        rater_id: str,
+        session_id: str = DEFAULT_SESSION_ID,
+        appearance_target: int = pairing.APPEARANCE_TARGET,
+    ) -> Session:
+        """Open the store at `path` and start a session on it.
+
+        Here rather than in a front end so that opening a store is not the one
+        operation every presentation layer has to know how to do for itself. A
+        web adapter gets the same one-line entry the terminal has.
+        """
+        return cls(
+            Store.open(path),
+            rater_id=rater_id,
+            session_id=session_id,
+            appearance_target=appearance_target,
+        )
+
+    @classmethod
+    def create(
+        cls,
+        path: Path,
+        *,
+        rater_id: str,
+        force: bool = False,
+    ) -> Session:
+        """Create a store at `path`, refusing to overwrite an existing one."""
+        return cls(Store.create(path, force=force), rater_id=rater_id)
+
+    @property
+    def store_path(self) -> Path:
+        return self._store.path
 
     # -- derived state -----------------------------------------------------
 
@@ -182,7 +257,7 @@ class Session:
         pending = self.next_pair()
         if pending is None:
             msg = "nothing left to judge in this batch"
-            raise ValueError(msg)
+            raise NothingToJudgeError(msg)
         recorded = self._store.append_comparison(
             left_id=pending.left.id,
             right_id=pending.right.id,
@@ -224,8 +299,10 @@ class Session:
         """
         estimates = self.estimates()
         active = self._store.active_comparisons()
+        cuts = self._store.cuts()
         appearances = [e.appearances for e in estimates]
         below = tuple(sorted(e.finding_id for e in estimates if e.appearances < self._target))
+        blocked = self._blocked_reason(estimates, cuts)
         return Progress(
             admitted=len(estimates),
             excluded_questions=self._store.excluded_question_count(),
@@ -234,33 +311,213 @@ class Session:
             min_appearances=min(appearances) if appearances else 0,
             mean_appearances=(sum(appearances) / len(appearances)) if appearances else 0.0,
             appearance_target=self._target,
-            complete=not below,
+            complete=not below and not blocked,
             items_below_target=below,
+            placing=bool(cuts),
+            blocked_reason=blocked,
         )
 
+    def _blocked_reason(self, estimates: tuple[Estimate, ...], cuts: tuple[Cut, ...]) -> str:
+        """Why there is nothing to judge, when the reason is not "it is finished".
+
+        `next_pair()` returns `None` for two unrelated reasons, and a front end
+        reading only that renders the wrong one: an inverted cut leaves the
+        placement path with no boundary to aim at, and the honest-looking display
+        for `None` is "batch complete". Derived here rather than stored, like
+        everything else on this seam.
+        """
+        if not cuts:
+            return ""
+        theta = {e.finding_id: e.theta for e in estimates}
+        try:
+            bands.thresholds(cuts, theta)
+        except (CutError, UnknownItemError) as exc:
+            return str(exc)
+        return ""
+
     def mean_comparisons_per_item(self) -> float:
-        """Judgments spent per finding placed — the other half of the cost model."""
-        estimates = self.estimates()
-        if not estimates:
+        """Judgments spent per finding *placed* — the other half of the cost model.
+
+        The denominator counts items with at least one appearance, not every
+        admitted finding. Dividing by the whole batch is a different figure: the
+        number is read precisely when a batch is part-way through, which is
+        exactly when untouched items are in the denominator deflating it, and a
+        rater checking "am I near the three the spec predicts?" would be told yes
+        by arithmetic rather than by measurement.
+        """
+        placed = sum(1 for e in self.estimates() if e.appearances > 0)
+        if not placed:
             return 0.0
-        return len(self._store.active_comparisons()) / len(estimates)
+        return len(self._store.active_comparisons()) / placed
 
     # -- bands -------------------------------------------------------------
 
     def place(self) -> Placement:
         """Assign bands using the cuts currently stored.
 
-        Raises :class:`CutError` when the cuts are missing or have inverted,
-        rather than banding against a boundary that no longer means anything.
+        Raises :class:`CutError` when the cuts are missing or have inverted, and
+        :class:`DisconnectedComparisonsError` when the judged items fall into
+        groups never compared against each other — rather than banding against a
+        boundary that no longer means anything, or across a gap no judgment
+        spans.
         """
         cuts = self._store.cuts()
         if not cuts:
             msg = "no cuts have been set; there are no boundaries to band against"
             raise CutError(msg)
         estimates = self.estimates()
+        self.require_connected()
         theta = {e.finding_id: e.theta for e in estimates}
+        cut_values = bands.thresholds(cuts, theta)
         return Placement(
-            assignments=bands.assign_bands(estimates, cuts),
+            assignments=bands.assign_bands(estimates, cut_values),
             unplaced=bands.unplaced(estimates),
-            thresholds=bands.thresholds(cuts, theta),
+            thresholds=cut_values,
         )
+
+    # -- the operations either front end needs -----------------------------
+
+    def fit(self) -> FitResult:
+        """The current fit, structured. Public because a front end reports it."""
+        return self._fit()
+
+    def load(
+        self,
+        findings_path: Path,
+        *,
+        accept_revisions: bool = False,
+        accept_removals: bool = False,
+    ) -> LoadOutcome:
+        """Re-read the findings document into the store.
+
+        Refuses, writing nothing, when a *judged* finding has changed text or has
+        left the document, unless the corresponding acceptance is passed. Both
+        acceptances are appended to the same log as comparisons, so an acceptance
+        changes the log hash and a severity file naming that hash is tied to a
+        history that includes it (D18).
+        """
+        result = load_findings(findings_path)
+        revisions = self._store.pending_revisions(result.admitted)
+        removals = self._store.pending_removals(result.admitted)
+        blocked = (revisions and not accept_revisions) or (removals and not accept_removals)
+        if blocked:
+            return LoadOutcome(
+                applied=False,
+                admitted=len(result.admitted),
+                excluded_questions=result.excluded_questions,
+                pending_revisions=revisions,
+                pending_removals=removals,
+                accepted_revisions=(),
+                accepted_removals=(),
+            )
+
+        accepted_r = tuple(
+            self._store.append_revision(r, rater_id=self._rater_id, session_id="load")
+            for r in revisions
+        )
+        accepted_x = tuple(
+            self._store.append_removal(x, rater_id=self._rater_id, session_id="load")
+            for x in removals
+        )
+        self._store.put_findings(result.admitted)
+        self._store.put_load_summary(result.excluded_questions)
+        self._invalidate()
+        return LoadOutcome(
+            applied=True,
+            admitted=len(result.admitted),
+            excluded_questions=result.excluded_questions,
+            pending_revisions=(),
+            pending_removals=(),
+            accepted_revisions=accepted_r,
+            accepted_removals=accepted_x,
+        )
+
+    def set_cuts(self, cuts: Sequence[Cut]) -> tuple[float, ...]:
+        """Store the three band cuts, after proving they mean something.
+
+        Everything is checked before anything is written. The previous order —
+        write, then validate — left `cuts.json` holding a boundary the tool had
+        just refused, in a store whose failure model says an unrecoverable error
+        writes nothing.
+        """
+        if len(cuts) != len(CUT_ORDER):
+            msg = f"expected {len(CUT_ORDER)} cuts, got {len(cuts)}"
+            raise CutError(msg)
+
+        top = next((c for c in cuts if c.name is CutName.CRITICAL_HIGH), None)
+        if top is None:
+            msg = f"no {CutName.CRITICAL_HIGH.value} cut supplied"
+            raise CutError(msg)
+        if not top.calibration_note.strip():
+            msg = (
+                "the top cut needs a calibration note naming the written consequence "
+                "definition it was drawn against. A pairwise scale has no origin: the "
+                "ordering can be internally perfect while the whole set sits a band too "
+                "high, and nothing downstream would record that it does"
+            )
+            raise CutError(msg)
+
+        estimates = self.estimates()
+        self.require_connected()
+        appearances = {e.finding_id: e.appearances for e in estimates}
+        for cut in cuts:
+            for anchor_id in (cut.above_id, cut.below_id):
+                if appearances.get(anchor_id, 0) == 0:
+                    msg = (
+                        f"cut {cut.name.value!r} names {anchor_id!r}, which has no "
+                        "comparisons. Its position is the prior's, not a judgment's, so a "
+                        "boundary drawn there reports the prior"
+                    )
+                    raise UnknownItemError(msg)
+
+        theta = {e.finding_id: e.theta for e in estimates}
+        values = bands.thresholds(tuple(cuts), theta)
+        self._store.put_cuts(cuts)
+        self._invalidate()
+        return values
+
+    def cuts(self) -> tuple[Cut, ...]:
+        return self._store.cuts()
+
+    def export(self, path: Path) -> Placement:
+        """Write the severity file, refusing whatever `place` refuses."""
+        placement = self.place()
+        severity.write_severity_file(
+            path,
+            assignments=placement.assignments,
+            store=self._store,
+            unplaced=placement.unplaced,
+            cuts=self.cuts(),
+        )
+        return placement
+
+    # -- connectivity ------------------------------------------------------
+
+    def components(self) -> tuple[tuple[str, ...], ...]:
+        """The judged items, grouped by whether a comparison path links them.
+
+        Unjudged items are excluded. They are isolated by definition, and
+        counting them here would report every part-way batch as disconnected.
+        """
+        judged = [e.finding_id for e in self.estimates() if e.appearances > 0]
+        return graph.components(judged, self._store.active_comparisons())
+
+    def require_connected(self) -> None:
+        """Refuse to report values across groups with no comparison between them.
+
+        Bradley-Terry estimates *differences*: two groups never compared against
+        each other have independent, arbitrary origins, so a boundary drawn
+        between them separates items on the strength of the prior rather than of
+        a judgment. That is the same failure the `unplaced` mechanism exists to
+        prevent, arriving by a different route.
+        """
+        found = self.components()
+        if len(found) > 1:
+            groups = "; ".join("{" + ", ".join(group) + "}" for group in found)
+            msg = (
+                f"the judged findings fall into {len(found)} groups with no comparison "
+                f"between them: {groups}. Their scale values have independent origins "
+                "and are not comparable; compare an item from each group against one "
+                "from another to join them"
+            )
+            raise DisconnectedComparisonsError(msg)

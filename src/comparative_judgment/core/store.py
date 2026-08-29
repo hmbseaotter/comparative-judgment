@@ -22,6 +22,7 @@ document this store reads from, not of the store itself.
 from __future__ import annotations
 
 import hashlib
+import io
 import json
 from collections.abc import Callable, Iterable, Sequence
 from datetime import UTC, datetime
@@ -30,6 +31,8 @@ from typing import Final
 
 from comparative_judgment.core.errors import (
     NoStorePathError,
+    RetractionError,
+    StoreExistsError,
     StoreSchemaError,
     UnknownItemError,
 )
@@ -41,6 +44,8 @@ from comparative_judgment.core.models import (
     DetectableBy,
     Finding,
     Outcome,
+    Removal,
+    RemovalAccepted,
     Retraction,
     Revision,
     RevisionAccepted,
@@ -59,12 +64,18 @@ FINDINGS_FILE: Final[str] = "findings.jsonl"
 LOG_FILE: Final[str] = "comparisons.jsonl"
 CUTS_FILE: Final[str] = "cuts.json"
 
+# Bytes read back from the end of the log to recover the last sequence number.
+# Grown on demand, so a record longer than this costs a second read rather than
+# a wrong answer.
+_TAIL_WINDOW: Final[int] = 4096
+
 #: Discriminator on log lines. Comparisons and retractions share one file so that
 #: `seq` is a single ordering over everything that happened, in the order it
 #: happened — two files would need their orders reconciled on every read.
 KIND_COMPARISON: Final[str] = "comparison"
 KIND_RETRACTION: Final[str] = "retraction"
 KIND_REVISION: Final[str] = "revision"
+KIND_REMOVAL: Final[str] = "removal"
 
 Clock = Callable[[], str]
 
@@ -92,9 +103,29 @@ def _write_json(path: Path, payload: dict[str, object]) -> None:
     )
 
 
+def _loads(text: str, where: str) -> object:
+    """Parse one JSON document, naming the file when it is not JSON at all.
+
+    The narrowing helpers in `shapes` already turn a wrong *shape* into a named
+    refusal; without this, a wrong *syntax* escapes as a `JSONDecodeError` with a
+    stack trace pointing into the standard library. That case is not exotic: the
+    log is flushed per record precisely so a crash cannot lose a judgment, and a
+    crash during that write is exactly what leaves a truncated final line.
+    """
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError as exc:
+        msg = f"{where} is not valid JSON: {exc}"
+        raise StoreSchemaError(msg) from exc
+
+
 def _read_json(path: Path) -> dict[str, object]:
-    loaded: object = json.loads(path.read_text(encoding="utf-8"))
-    return as_dict(loaded, path.name, error=StoreSchemaError)
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError as exc:
+        msg = f"cannot read {path.name}: {exc}"
+        raise StoreSchemaError(msg) from exc
+    return as_dict(_loads(text, path.name), path.name, error=StoreSchemaError)
 
 
 class Store:
@@ -107,7 +138,6 @@ class Store:
     def __init__(self, path: Path, *, clock: Clock = utc_now) -> None:
         self.path = path
         self._clock = clock
-        self._seq: int | None = None
 
     # -- lifecycle ---------------------------------------------------------
 
@@ -129,8 +159,32 @@ class Store:
         *,
         anchor_set_version: str = "1",
         clock: Clock = utc_now,
+        force: bool = False,
     ) -> Store:
+        """Create a store directory, refusing to overwrite one that exists.
+
+        `force` re-initialises an existing store, and still refuses once any
+        judgment has been recorded. Creating rewrites `cuts.json` empty, so
+        without this guard a re-run destroys the three band cuts — a deletion, in
+        a store whose stated property is that nothing is ever deleted.
+        """
         target = cls._require_path(path)
+        meta_path = target / META_FILE
+        if meta_path.is_file():
+            if not force:
+                msg = (
+                    f"a store already exists at {target}. Creating would rewrite "
+                    "cuts.json empty and discard the three band cuts; pass force to "
+                    "re-initialise deliberately"
+                )
+                raise StoreExistsError(msg)
+            if cls(target, clock=clock)._read_lines(target / LOG_FILE):
+                msg = (
+                    f"the store at {target} holds recorded judgments; re-initialising "
+                    "would leave them referring to findings and cuts that no longer "
+                    "exist. Point at a new path instead"
+                )
+                raise StoreExistsError(msg)
         target.mkdir(parents=True, exist_ok=True)
         store = cls(target, clock=clock)
         _write_json(
@@ -223,7 +277,7 @@ class Store:
         out: list[Finding] = []
         where = FINDINGS_FILE
         for line in self._read_lines(self.path / FINDINGS_FILE):
-            raw = as_dict(json.loads(line), where, error=StoreSchemaError)
+            raw = as_dict(_loads(line, where), where, error=StoreSchemaError)
             evidence = as_list(
                 field(raw, "evidence", where, error=StoreSchemaError), where, error=StoreSchemaError
             )
@@ -272,16 +326,50 @@ class Store:
     # -- the log -----------------------------------------------------------
 
     def _next_seq(self) -> int:
-        """The next sequence number, counted once and then tracked.
+        """One past the last sequence number on disk, re-read at every append.
 
-        Read from disk on first use so a reopened store continues the sequence,
-        then held in memory. Counting the file on every append made each one
-        O(n) and a whole session O(n-squared).
+        Deliberately *not* cached. A cached counter desynchronises the moment a
+        second handle appends — two records then share a number, and since a
+        retraction addresses a comparison by seq, retracting one withdraws every
+        record carrying that number. That is silent corruption of the artefact
+        this whole tool exists to produce.
+
+        The read is a tail seek rather than a full parse, so the append stays
+        O(1) in the log's length: the cost the cache was introduced to remove is
+        removed here too, without the correctness price.
         """
-        if self._seq is None:
-            self._seq = len(self._read_lines(self.path / LOG_FILE))
-        self._seq += 1
-        return self._seq
+        return self._last_seq() + 1
+
+    def _last_seq(self) -> int:
+        """The highest sequence number written, read from the log's final line.
+
+        Records are appended in sequence order, so the last line carries the
+        highest number; the window grows until a complete final line is in hand
+        rather than assuming one fits.
+        """
+        path = self.path / LOG_FILE
+        if not path.is_file():
+            return 0
+        with path.open("rb") as handle:
+            handle.seek(0, io.SEEK_END)
+            size = handle.tell()
+            window = 0
+            tail = b""
+            while window < size:
+                window = min(size, max(window * 4, _TAIL_WINDOW))
+                handle.seek(size - window)
+                tail = handle.read(window)
+                # A newline before the final record proves it was not truncated
+                # by the window itself.
+                if b"\n" in tail.rstrip(b"\n"):
+                    break
+        lines = [line for line in tail.splitlines() if line.strip()]
+        if not lines:
+            return 0
+        raw = as_dict(_loads(lines[-1].decode("utf-8"), LOG_FILE), LOG_FILE, error=StoreSchemaError)
+        return as_int(
+            field(raw, "seq", LOG_FILE, error=StoreSchemaError), LOG_FILE, error=StoreSchemaError
+        )
 
     def _append_log(self, payload: dict[str, object]) -> None:
         """Append one line and flush it to disk before returning.
@@ -338,6 +426,21 @@ class Store:
         return record
 
     def append_retraction(self, *, retracts_seq: int, rater_id: str, session_id: str) -> Retraction:
+        """Withdraw a live comparison, refusing one that names nothing.
+
+        A retraction of an already-retracted or nonexistent record is inert to
+        the fit, which filters by a set — but the log's hash is published as
+        provenance in every severity file, so it still changes the fingerprint of
+        a history without changing what that history says.
+        """
+        live = {c.seq for c in self.active_comparisons()}
+        if retracts_seq not in live:
+            msg = (
+                f"no live comparison at seq {retracts_seq} to retract. A retraction "
+                "that names nothing still changes the log's hash, which is published "
+                "as provenance"
+            )
+            raise RetractionError(msg)
         record = Retraction(
             seq=self._next_seq(),
             retracts_seq=retracts_seq,
@@ -365,10 +468,7 @@ class Store:
         rater to wave the acceptance flag through by reflex.
         """
         stored = {f.id: f.content_hash for f in self.findings()}
-        counts: dict[str, int] = {}
-        for comparison in self.active_comparisons():
-            for item in (comparison.left_id, comparison.right_id):
-                counts[item] = counts.get(item, 0) + 1
+        counts = self._judged_counts()
 
         found: list[Revision] = []
         for finding in incoming:
@@ -397,6 +497,7 @@ class Store:
             finding_id=revision.finding_id,
             old_hash=revision.old_hash,
             new_hash=revision.new_hash,
+            comparisons=revision.comparisons,
             rater_id=rater_id,
             session_id=session_id,
             timestamp=self._clock(),
@@ -408,6 +509,7 @@ class Store:
                 "finding_id": record.finding_id,
                 "old_hash": record.old_hash,
                 "new_hash": record.new_hash,
+                "comparisons": record.comparisons,
                 "rater_id": record.rater_id,
                 "session_id": record.session_id,
                 "timestamp": record.timestamp,
@@ -415,15 +517,74 @@ class Store:
         )
         return record
 
+    def _judged_counts(self) -> dict[str, int]:
+        """How many live comparisons each finding appears in."""
+        counts: dict[str, int] = {}
+        for comparison in self.active_comparisons():
+            for item in (comparison.left_id, comparison.right_id):
+                counts[item] = counts.get(item, 0) + 1
+        return counts
+
+    def pending_removals(self, incoming: Iterable[Finding]) -> tuple[Removal, ...]:
+        """Judged findings the incoming document no longer contains.
+
+        The sibling of :meth:`pending_revisions`. That one guards findings whose
+        text changed; nothing guarded findings that *vanished*, and the harm is
+        the same shape through the adjacent door — the index is replaced whole,
+        the comparisons stay in the log referring to an item the fit no longer
+        knows, and the surviving partner's appearances silently fall.
+
+        Only judged findings are reported, for the reason D18 gives: flagging a
+        removal nobody compared would train a rater to wave the flag through.
+        """
+        arriving = {f.id for f in incoming}
+        counts = self._judged_counts()
+        found = [
+            Removal(finding_id=f.id, old_hash=f.content_hash, comparisons=counts[f.id])
+            for f in self.findings()
+            if f.id not in arriving and counts.get(f.id, 0) > 0
+        ]
+        return tuple(sorted(found, key=lambda r: r.finding_id))
+
+    def append_removal(
+        self, removal: Removal, *, rater_id: str, session_id: str
+    ) -> RemovalAccepted:
+        """Record that a human accepted a judged finding leaving the document."""
+        record = RemovalAccepted(
+            seq=self._next_seq(),
+            finding_id=removal.finding_id,
+            old_hash=removal.old_hash,
+            comparisons=removal.comparisons,
+            rater_id=rater_id,
+            session_id=session_id,
+            timestamp=self._clock(),
+        )
+        self._append_log(
+            {
+                "kind": KIND_REMOVAL,
+                "seq": record.seq,
+                "finding_id": record.finding_id,
+                "old_hash": record.old_hash,
+                "comparisons": record.comparisons,
+                "rater_id": record.rater_id,
+                "session_id": record.session_id,
+                "timestamp": record.timestamp,
+            }
+        )
+        return record
+
+    def accepted_removals(self) -> tuple[RemovalAccepted, ...]:
+        return tuple(e for e in self.log() if isinstance(e, RemovalAccepted))
+
     def accepted_revisions(self) -> tuple[RevisionAccepted, ...]:
         return tuple(e for e in self.log() if isinstance(e, RevisionAccepted))
 
-    def log(self) -> tuple[Comparison | Retraction | RevisionAccepted, ...]:
+    def log(self) -> tuple[Comparison | Retraction | RevisionAccepted | RemovalAccepted, ...]:
         """Everything recorded, in the order it happened."""
-        out: list[Comparison | Retraction | RevisionAccepted] = []
+        out: list[Comparison | Retraction | RevisionAccepted | RemovalAccepted] = []
         where = LOG_FILE
         for line in self._read_lines(self.path / LOG_FILE):
-            raw = as_dict(json.loads(line), where, error=StoreSchemaError)
+            raw = as_dict(_loads(line, where), where, error=StoreSchemaError)
             kind = as_str(
                 field(raw, "kind", where, error=StoreSchemaError), where, error=StoreSchemaError
             )
@@ -488,6 +649,11 @@ class Store:
                             where,
                             error=StoreSchemaError,
                         ),
+                        comparisons=as_int(
+                            field(raw, "comparisons", where, error=StoreSchemaError),
+                            where,
+                            error=StoreSchemaError,
+                        ),
                         rater_id=rater,
                         session_id=session,
                         timestamp=stamp,
@@ -499,6 +665,30 @@ class Store:
                         seq=seq,
                         retracts_seq=as_int(
                             field(raw, "retracts_seq", where, error=StoreSchemaError),
+                            where,
+                            error=StoreSchemaError,
+                        ),
+                        rater_id=rater,
+                        session_id=session,
+                        timestamp=stamp,
+                    )
+                )
+            elif kind == KIND_REMOVAL:
+                out.append(
+                    RemovalAccepted(
+                        seq=seq,
+                        finding_id=as_str(
+                            field(raw, "finding_id", where, error=StoreSchemaError),
+                            where,
+                            error=StoreSchemaError,
+                        ),
+                        old_hash=as_str(
+                            field(raw, "old_hash", where, error=StoreSchemaError),
+                            where,
+                            error=StoreSchemaError,
+                        ),
+                        comparisons=as_int(
+                            field(raw, "comparisons", where, error=StoreSchemaError),
                             where,
                             error=StoreSchemaError,
                         ),

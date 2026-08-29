@@ -1,7 +1,7 @@
 # specification: comparative-judgment — severity scoring by pairwise comparison
 
 ## metadata
-- Spec version: 0.5.0
+- Spec version: 0.6.0
 - Status: DRAFT
 - Last updated: 2026-08-28
 - Author(s): Saso Gale
@@ -9,13 +9,13 @@
 - Build class: build-required
 - Role: n/a — a scoring utility; no persona sharpens it. Its one stance-like property is that it never asks for a number, only for a comparison, and that is a requirement rather than a voice.
 - Produced by: /specify @ f72b756
-- Last swept: 2026-08-28 @ 0.5.0 @ D18
+- Last swept: 2026-08-28 @ 0.6.0 @ D26 — trigger: ~8–10 accrued decisions, before publishing, or at phase completion, whichever comes first (change-based, never calendar-based)
 - Artifacts land in: the `comparative-judgment` repository root
 - Visibility: public (currently private, flipped when ready). The store path is always supplied by the caller — there is no implicit fallback — but the conventional location used by the documentation and examples is gitignored, so following the docs cannot cause an accidental commit. A general-purpose severity tool will be pointed at real production findings by someone, and a committing default is a trap.
 - Decision record: `specs/comparative-judgment.decisions.md`
 - Reproducibility: required, byte-identical — the same comparison log SHALL produce the same scale values, standard errors and bands. This does not happen by accident: Bradley-Terry fitting is iterative, so it needs a fixed convergence tolerance, a fixed iteration cap, a deterministic item ordering, and deterministic tie-breaking.
 - Timestamp standard: UTC ISO-8601 with `Z` suffix, second precision.
-- Integrity: the comparison log is append-only (a retraction is a record, never a deletion). Every finding carries a content hash, so revised text becomes a new item and old comparisons stay bound to the version actually judged. Every emitted severity file names the run id, the anchor-set version and the hash of the log it was computed from, so any result can be recomputed from the inputs it names.
+- Integrity: the comparison log is append-only (a retraction is a record, never a deletion). Every finding carries a content hash, so a load that would reinterpret judged text is refused until a human accepts it, and the acceptance is itself a record in the same log (D18); a judged finding *removed* from the document is refused the same way (D22). Every emitted severity file names the run id, the anchor-set version and the hash of the log it was computed from, so any result can be recomputed from the inputs it names. The run id is *derived* from those inputs rather than minted per export (D23), so it identifies the result and two exports over an unchanged history are byte-identical including it.
 
 ## outcome
 A rater assigns defensible severity to a set of findings by answering only *"which of these two is worse?"* — never by choosing a number on a scale. Measurable as: every finding in a batch receives a band; the number of **absolute** judgments required is exactly three (the band cuts) regardless of batch size; placing a finding against an established anchor set costs ~3 comparisons rather than ~log₂(n); re-running the fit over an unchanged comparison log reproduces identical scale values, standard errors and bands byte for byte; and the tool reports, per finding, a standard error and a misfit statistic locating where the rater's scale is soft.
@@ -105,8 +105,13 @@ Persistent by design — the comparison log *is* the product, and the ordering i
 - WHEN [P1] a rater records a comparison, the system SHALL persist it before presenting the next pair.
 - WHEN [P1] a rater retracts a comparison, the system SHALL append a retraction record and SHALL NOT delete the original.
 - WHEN [P1] a finding's content hash differs from the stored hash for an identifier that has already been judged, the system SHALL refuse the load, name each changed finding with its comparison count, and SHALL proceed only when revisions are explicitly accepted.
-- WHEN [P1] a revision is explicitly accepted, the system SHALL append a record carrying the finding identifier, both content hashes, the rater identifier and a timestamp.
-- WHEN [P1] the comparison graph contains more than one connected component, the system SHALL name the components and SHALL NOT report scale values as comparable across them.
+- WHEN [P1] a revision is explicitly accepted, the system SHALL append a record carrying the finding identifier, both content hashes, the comparison count at acceptance, the rater identifier and a timestamp.
+- WHEN [P1] a findings document no longer contains an identifier that has already been judged, the system SHALL refuse the load, name each removed finding with its comparison count, and SHALL proceed only when removals are explicitly accepted.
+- WHEN [P1] a removal is explicitly accepted, the system SHALL append a record carrying the finding identifier, its content hash, the comparison count, the rater identifier and a timestamp.
+- WHEN [P1] a revision or a removal is accepted, the system SHALL require an explicit rater identifier and SHALL NOT substitute a default.
+- WHEN [P1] band cuts are set, the system SHALL require a non-empty calibration note on the most severe cut, naming the written consequence definition it was drawn against, and SHALL carry every note into the emitted severity file.
+- WHEN [P1] a store is created where one already exists, the system SHALL refuse by name and SHALL change no file; WHERE re-initialisation is explicitly forced, the system SHALL still refuse once any judgment has been recorded.
+- WHEN [P1] the comparison graph over judged findings contains more than one connected component, the system SHALL name the components, SHALL refuse to assign bands or emit a severity file, and SHALL NOT report scale values as comparable across them. Findings with no comparisons are excluded from this check: they are isolated by definition, and counting them would report every part-way batch as disconnected.
 - WHEN [P1] band cuts are set, the system SHALL require exactly three absolute judgments and SHALL display findings on both sides of each cut.
 - WHEN [P1] a cut is stored, the system SHALL store it as the ordered pair of findings either side of it, and SHALL derive its threshold as the midpoint of those two findings' current scale values at each fit.
 - WHEN [P1] every admitted item has reached the configured appearance target, the system SHALL report the cold-start phase complete, while permitting the rater to stop earlier or continue further.
@@ -128,6 +133,12 @@ Persistent by design — the comparison log *is* the product, and the ordering i
 - IF [P1] a fit inverts a cut's anchor pair, the system SHALL report that cut by name and SHALL NOT silently re-order it.
 - IF [P1] a finding lacks `id`, `observation` or `consequence` text, the system SHALL refuse to admit it to a batch and SHALL name the finding.
 - IF [P1] a comparison names the same finding on both sides, the system SHALL refuse it.
+- IF [P1] a finding is admitted with no evidence fragment, the system SHALL refuse it and SHALL name it.
+- IF [P1] a retraction names no live comparison, the system SHALL refuse it rather than appending a record that refers to nothing — the log's hash is published as provenance, so an inert record still changes the fingerprint of a history without changing what it says.
+- IF [P1] a band cut names a finding with no comparisons, the system SHALL refuse the cut: the anchor's position is the prior's rather than a judgment's.
+- IF [P1] any file the system reads is unreadable or syntactically malformed, the system SHALL raise a named refusal at the parse boundary naming the file, and SHALL NOT allow a parser's own exception to reach the caller.
+- IF [P1] the system cannot write the severity file where it was asked to, the system SHALL report a named refusal.
+- IF [P1] an operation would fail validation, the system SHALL complete every check before writing anything, so that a refused operation leaves the store byte-identical.
 - IF [P1] a finding's `tier` is `question`, the system SHALL exclude it from the batch, from the fit and from the anchor set, and SHALL report how many were excluded.
 - IF [P1] a store is opened whose schema version is unrecognised, the system SHALL refuse to write and SHALL report the version mismatch.
 - IF [P1] the caller supplies no store path, the system SHALL fail with a named error rather than defaulting to a path inside the repository.
@@ -157,7 +168,19 @@ Persistent by design — the comparison log *is* the product, and the ordering i
 - [ ] [P1] A cold-start batch of 50 findings reaches a total order, three cuts are set with three absolute judgments, and every finding receives a band.
 - [ ] [P1] Placing a 51st finding against the established cuts costs no more than 4 comparisons, asserted by counting records.
 - [ ] [P1] A session interrupted mid-batch and resumed continues at the same position with the same comparisons-spent count.
-- [ ] [P1] A severity file is emitted keyed by finding id, carrying run id, anchor-set version and log hash.
+- [x] [P1] A severity file is emitted keyed by finding id, carrying run id, anchor-set version and log hash.
+- [x] [P1] Two exports over an unchanged log, anchor set and set of cuts are byte-identical **including** the run id; changing any of the three changes it.
+- [x] [P1] The severity file carries the calibration note of every cut, and `cuts` refuses without one on the most severe cut.
+- [x] [P1] `init` against an existing store refuses by name, changes no file, and the three cuts and the load summary both survive; `--force` re-initialises an unjudged store and still refuses a judged one.
+- [x] [P1] `cuts` naming an unknown finding, or a finding with no comparisons, leaves `cuts.json` byte-identical.
+- [x] [P1] Two `Store` handles opened on one store and appended to alternately produce strictly increasing, unique sequence numbers; retracting one leaves the other active.
+- [x] [P1] A judged finding removed from the document is refused by name with its comparison count and its judgments survive; an unjudged one may be removed freely; accepting appends a removal record and changes the log hash.
+- [x] [P1] `--accept-revisions` or `--accept-removals` without a rater identifier is refused by name.
+- [x] [P1] `bands` and `export` over a disconnected graph refuse by name and write nothing; `fit` and `status` name the components.
+- [x] [P1] A missing findings file, syntactically malformed YAML, a corrupt `meta.json` and a truncated log line each exit non-zero with a named refusal and no traceback.
+- [x] [P1] A retraction naming no live comparison, a repeated retraction, and a finding with empty evidence are each refused by name.
+- [x] [P1] With an inverted cut, the front end's progress pane names the cut and does not say "complete"; after cuts exist it does not report the appearance target as the finishing condition.
+- [x] [P1] With an unplaced item present, the reported mean-comparisons figure counts only findings that have been compared.
 - [ ] [P1] The findings file is unchanged after a full scoring run, asserted by content hash before and after.
 - [ ] [P2] A diagnostics report names per-item standard errors, misfit statistics and the tie rate.
 - [ ] [P2] An exported anchor set imports into an empty store and reports its bridging-comparison count.
@@ -215,7 +238,7 @@ Persistent by design — the comparison log *is* the product, and the ordering i
 - Goal: a rater can cold-start a batch, set cuts, place findings, and emit severities — resumably, reproducibly, with no LLM anywhere.
 - Includes (required floor): core data model and append-only comparison log; Bradley-Terry fit with deterministic convergence and standard errors; the session API seam; band cuts, calibration and placement; YAML reader and severity writer; repo hygiene floor with the store gitignored from the first commit.
 - Includes (chosen optional): the full TUI with undo, tie, progress and session timer — undo specifically, because a misfired key in a 250-comparison session otherwise becomes a silently wrong datum in the log everything downstream derives from; resumable sessions, since the bootstrap is expected to span sittings; and simple heuristic pairing, which is what makes the ~10-appearances estimate plausible rather than optimistic.
-- Deferred by choice: the connectivity check moves to phase 2 — phase 1 already refuses cross-component comparisons, and with a single batch connected by construction the diagnostic explaining why has nothing to report.
+- ~~Deferred by choice: the connectivity check moves to phase 2.~~ **Retracted (D21).** It was in fact built in phase 1 — `core/graph.py` exists and `cj status` warned from the start — but only `status` asked, so `fit`, `bands` and `export` reported and wrote values across components never compared against each other. The `[P1]` tag the requirement always carried was the correct one; the deferral note was wrong when written and stale thereafter.
 - Done when: its tagged acceptance criteria pass, and a 50-finding bootstrap completes with exactly three absolute judgments.
 
 ### phase 2 — diagnostics and portability
@@ -247,7 +270,16 @@ Persistent by design — the comparison log *is* the product, and the ordering i
 ---
 
 ## decisions made
-- [agent fills in during build]
+
+*The compact what-and-why. The full reasoning, including the options each one beat and why, is in `specs/comparative-judgment.decisions.md`.*
+
+**Settled before the build (D1–D13).** The tool is public with a gitignored conventional store path and no implicit fallback (D1, D9). Bradley-Terry replaces the source design's comparison sort, because a sort's efficiency *is* its transitivity assumption and it skips precisely the comparisons that would reveal a cycle (D2). A terminal UI now, a browser adapter later, with a session seam that keeps the first from becoming throwaway (D3). Rater identity is recorded from the first comparison, because retrofitting it leaves every earlier record unattributable (D4). Severity leaves in its own file keyed by id, never written back into the findings document (D5, D10). The cold-start phase ends at a configurable appearance target, default 10 (D11). A cut is stored as the *pair of findings* either side of it, not a threshold value, because a pairwise scale has no origin and a stored number means something only relative to the fit that produced it (D12). Regularisation is λ = 0.5 pseudo-wins and pseudo-losses against a virtual opponent at the origin, without which the estimate diverges for any item that wins or loses all its comparisons — guaranteed at both ends of a severity scale (D13).
+
+**Settled during the build (D14–D16).** Standard errors move to phase 2, since nothing in phase 1 consumes them (D14). The iteration cap is 200,000, set from measurement at n = 50, 75 and 100 after the original cap refused perfectly consistent input at n ≈ 60 (D16).
+
+**Settled at the post-build sweep (D17–D18).** A changed finding is refused rather than silently reinterpreted or automatically forked, and accepting is audited in the same append-only log — so an acceptance changes the log hash, and a severity file naming that hash is tied to a history that includes it (D18).
+
+**Settled after an independent audit of 0.5.0 (D19–D26).** The sequence number is re-read at every append rather than cached, because a cached counter desynchronises the moment a second handle appends and a retraction then withdraws every record sharing that number (D19). Creating a store refuses to overwrite one, since the three band cuts are the only absolute judgments the tool asks for and were being destroyed by a command that exited zero (D20). Connectivity is enforced rather than merely reported: `bands` and `export` refuse across components never compared (D21). A judged finding removed from the document is refused exactly as a changed one is, with its own acceptance flag so the more consequential acceptance is not reachable by habit (D22). The run id is derived from the log hash, the anchor set and the cuts, so it identifies the *result* and needs no exclusion carved out of the byte-identity guarantee (D23). The session seam covers the whole tool rather than only the comparison loop, and the scan enforcing it is derived from the package layout rather than listed — the previous scan was green because its universe excluded the file that broke the rule (D24). The most severe cut requires a calibration note, because a pairwise ordering can be internally perfect while the whole set sits a band too high (D25). Every operation validates before it writes, and every parse boundary raises a named refusal (D26).
 
 ---
 
@@ -257,6 +289,7 @@ n/a (build-required — see the build prompt)
 ---
 
 ## changelog
+- 0.6.0 (2026-08-28): an independent audit of 0.5.0 — a session that had written none of this code, read the spec, the record and the source, then ran the tool against constructed inputs — reported forty-one findings. Every executable one reproduced. Eight decisions follow (D19–D26): the sequence number is re-read rather than cached, because a cached counter let two handles write the same number and one retraction then withdrew both records; creating a store refuses to overwrite one, having silently destroyed all three band cuts and exited zero; connectivity is enforced rather than only reported by `status`; a judged finding *removed* from the document is refused like a changed one (D18's harm through the adjacent door); the run id — specified four times, implemented nowhere, and reported as passing — is derived rather than minted; the session seam covers the whole tool, and its scan is derived from the package layout rather than listed; the top cut requires a calibration note; every operation validates before writing and every parse boundary raises a named refusal. **Two corrections to earlier entries in this list.** The 0.5.0 line below says the cached counter "ended an O(n-squared) session cost" — one such cost ended; the session's own remains, and is now recorded in *Not checked* rather than implied away. The 0.4.1 line reports "31 of 31 criteria passed": it was 30, because the run-id criterion had never been implemented. That is the second time a criterion has been ticked against something adjacent to it, which is why the criteria above now carry checkboxes tied to named tests. CI added, so the three toolchain gates stop depending on someone remembering. Coverage 98%, 221 tests.
 - 0.5.0 (2026-08-28): post-build sweep, sixteen findings. The content-hash requirement was replaced (D18) — specified, never implemented, and wrong as written: strict forking would orphan every judgment about a finding whenever a typo was fixed. A changed judged finding now refuses the load and accepting is recorded in the append-only log. Self-comparison refused. The sequence counter is cached, ending an O(n-squared) session cost. Dead code removed. Coverage 75% to 98%.
 - 0.4.1 (2026-08-28): the intransitivity acceptance criterion split across the two phases it actually spans (D17). Its misfit half became unreachable in phase 1 when D14 moved standard errors to phase 2, and the wording did not follow. Phase 1 built and verified: 30 of 31 criteria passed before this split, 31 of 31 after.
 - 0.4.0 (2026-08-28): phase 1 re-cut back toward the MVP the consuming project's sequencing decision assumed (D14) — standard errors, the session timer and the remaining-comparisons estimate move to phase 2. A cross-repository interface scanner added (D15). A stale assumption about the harness's findings format promoted to a settled prior decision.

@@ -22,6 +22,30 @@ In the comparison loop: `←`/`a` and `→`/`d` choose, `t` marks a pair too clo
 the last judgment, `q` quits. Nothing needs saving — every judgment is on disk before the next pair
 appears, so quitting and resuming is indistinguishable from never having stopped.
 
+The note on the top cut is required, and it is the one thing here that is not a comparison. A
+pairwise scale has no origin: the ordering can be internally perfect while the whole set sits a band
+too high, and every consumer of the severity file would inherit that offset with nothing recording
+it. The note is what the boundary was drawn against, and it travels with the result.
+
+Three commands refuse rather than proceed, and each refusal is the point:
+
+```bash
+cj init --store .cj-store          # refuses if a store is already there --
+                                   # creating would wipe the three band cuts
+cj init --store .cj-store --force  # re-initialises, and still refuses once
+                                   # any judgment has been recorded
+cj load --store .cj-store --findings findings.yaml --rater you --accept-revisions
+cj load --store .cj-store --findings findings.yaml --rater you --accept-removals
+```
+
+The last two are for when the findings document has moved under judgments already made — text
+edited, or an entry deleted. Neither is waved through: the load is refused, each affected finding is
+named with how many comparisons were made against it, and accepting appends a record to the same
+append-only log as the comparisons. So an acceptance **changes the log hash**, and a severity file
+naming that hash is tied to a history that includes it rather than one that conceals it. The rater
+id is required on those paths — an audit record that cannot say who is answering three of its four
+questions.
+
 ### What a findings document looks like
 
 ```yaml
@@ -67,13 +91,25 @@ The severity file names the run it came from, so a value can always be traced ba
   "schema_version": "1",
   "anchor_set_version": "1",
   "comparison_log_hash": "01ab8a59dbd7a002…",
+  "run_id": "4f2c9a10be77d3e5",
+  "calibration": {
+    "critical_high": "Critical means the caller acts on a false statement about their booking."
+  },
   "severities": [{ "id": "F-01", "severity": "critical", "theta": 2.14 }],
   "unplaced": []
 }
 ```
 
+`run_id` is **derived, not minted** — a hash of the log, the anchor-set version and the three cuts.
+So it names the *result* rather than the act of exporting: two exports over an unchanged history
+carry the same id, and changing a single cut changes it. That also means the whole file is
+byte-identical across runs, with no field carved out as an exception.
+
 `unplaced` lists findings nobody compared. They get no band rather than a defaulted one: banding
-them would report the prior as though it were a judgment.
+them would report the prior as though it were a judgment. For the same reason, a severity file is
+refused outright when the findings you judged fall into groups with no comparison between them —
+Bradley-Terry estimates *differences*, so a boundary across that gap separates items on the strength
+of the prior rather than of anything you decided.
 
 ---
 

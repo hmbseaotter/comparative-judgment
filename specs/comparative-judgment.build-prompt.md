@@ -1,9 +1,12 @@
 # Build prompt — comparative-judgment, **phase 1**
 
-> Hand this file to a building agent (a fresh Claude Code session, Cursor, Aider, …). It targets
-> **phase 1 only**. The full target is `specs/comparative-judgment.md`; the reasoning behind every
-> settled fork, including one that overturns the source design, is in
-> `specs/comparative-judgment.decisions.md` (D1–D15).
+> **This file is a frozen phase-1 artefact.** It records what was asked for, as it was asked, and
+> is not amended when a decision later overturns part of it — that is what makes it usable as a
+> record of what the build was actually told. Two places below were overtaken during the build and
+> are marked inline; the current statement of every requirement is
+> `specs/comparative-judgment.md`, and the reasoning is in
+> `specs/comparative-judgment.decisions.md` (now D1–D26, of which D1–D15 existed when this was
+> written). Whoever builds phase 2 should read the spec and the decision record, not this file.
 
 ## Recommended build-time session settings
 - **Model:** Claude Opus 5. **Effort:** `xhigh` (Extra).
@@ -69,6 +72,11 @@ caller supplied.
 
 1. **Core data model + append-only comparison log.** Findings carry a stable id *and a content hash*
    — revised text becomes a new item, and comparisons stay bound to the version actually judged.
+   > **Overtaken by D18.** Automatic forking was found to be hostile to normal work: correcting a
+   > spelling mistake would orphan every judgment about that finding. The implemented behaviour is
+   > refuse-then-audit — the load is refused, each changed judged finding is named with its
+   > comparison count, and accepting is recorded in the log. D22 extends the same treatment to a
+   > finding *removed* from the document.
    Comparisons carry both item ids, the outcome, rater id, session id and a UTC timestamp. The rater
    id is present from the first commit even though there is one rater (D4): retrofitting it later
    leaves every existing comparison unattributable.
@@ -122,6 +130,10 @@ caller supplied.
 **Deferred by choice:** the connectivity check moves to phase 2 — phase 1 already refuses
 cross-component comparisons, and a single batch is connected by construction, so the diagnostic
 explaining why would have nothing to report.
+> **Not what happened.** `core/graph.py` was built in phase 1 and `cj status` warned from the
+> start — but only `status` did, so `fit`, `bands` and `export` reported and wrote values across
+> components that had never been compared. D21 finished it: the requirement is now implemented
+> rather than deferred, and the `[P1]` tag it always carried is correct.
 
 ---
 
@@ -148,6 +160,9 @@ Stack: Python 3.12+, `uv` with a committed lockfile pinning **exact** versions (
       was persisted before the next pair was presented.
 - [ ] A finding whose text is edited becomes a new item; comparisons against the previous text stay
       attached to it.
+      *(Amended by D18: the load is refused and names the finding; accepting carries the judgments
+      over and appends an audit record. This criterion was reported as passing before it was
+      implemented — see the changelog for 0.5.0.)*
 - [ ] A retracted comparison is absent from the fit while its record remains in the log.
 - [ ] A tie is recorded, excluded from the fit, and counted in the tie rate.
 - [ ] A deliberately intransitive triad (A>B, B>C, C>A) is accepted without error rather than

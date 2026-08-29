@@ -99,10 +99,12 @@ BANDS: Final[tuple[Band, ...]] = (Band.CRITICAL, Band.HIGH, Band.MEDIUM, Band.LO
 def content_hash(*, observation: str, evidence: tuple[str, ...], consequence: str) -> str:
     """Hash the text a rater actually judged.
 
-    Only the fields shown during a comparison are hashed. If they change, the
-    finding becomes a new item and prior comparisons stay bound to the version
-    that was on screen when they were made — otherwise old judgments silently
-    re-attach to text nobody compared.
+    Only the fields shown during a comparison are hashed, so the hash answers one
+    question: is this the text the rater was looking at? When it changes on a
+    finding that has been judged, loading is *refused* until a human accepts the
+    change (D18) — the tool cannot tell a corrected typo from a rewrite, and
+    forking automatically would orphan every judgment about a finding whose
+    spelling someone fixed.
 
     Evidence fragments are joined with a separator that cannot occur in the text
     itself, so ``["ab", "c"]`` and ``["a", "bc"]`` do not collide.
@@ -191,6 +193,11 @@ class RevisionAccepted:
     finding_id: str
     old_hash: str
     new_hash: str
+    #: How many judgments were carried over. Part of the record rather than
+    #: recoverable from it: the count is taken at the moment of acceptance, and
+    #: later comparisons would make a recomputed figure disagree with what the
+    #: human was actually shown when they decided.
+    comparisons: int
     rater_id: str
     session_id: str
     timestamp: str
@@ -203,6 +210,37 @@ class Revision:
     finding_id: str
     old_hash: str
     new_hash: str
+    comparisons: int
+
+
+@dataclass(frozen=True, slots=True)
+class RemovalAccepted:
+    """A record that a judged finding left the document and a human accepted it.
+
+    The sibling of :class:`RevisionAccepted`, for the adjacent door. Where a
+    revision changes what a judgment *refers to*, a removal takes the referent
+    away entirely: the comparisons stay in the log, the fit no longer knows the
+    item, and the surviving partner's appearance count silently falls. The same
+    reasoning applies — nothing can distinguish a deliberate cut from a stray
+    edit, so the tool refuses and a human decides — and the same audit trail
+    follows, in the same log, changing the same hash.
+    """
+
+    seq: int
+    finding_id: str
+    old_hash: str
+    comparisons: int
+    rater_id: str
+    session_id: str
+    timestamp: str
+
+
+@dataclass(frozen=True, slots=True)
+class Removal:
+    """A judged finding present in the store and absent from the incoming document."""
+
+    finding_id: str
+    old_hash: str
     comparisons: int
 
 
@@ -286,3 +324,12 @@ class Progress:
     appearance_target: int
     complete: bool
     items_below_target: tuple[str, ...] = field(default_factory=tuple)
+    #: True once cuts exist: the loop is placing items against boundaries rather
+    #: than working every item toward the appearance target, so "every item at N
+    #: appearances" is not what finishing means any more.
+    placing: bool = False
+    #: Non-empty when there is nothing to judge because something is *wrong* --
+    #: an inverted cut, an anchor that no longer exists -- rather than because
+    #: the batch is done. Without it a front end cannot tell the two apart, and
+    #: the honest-looking answer is the wrong one.
+    blocked_reason: str = ""

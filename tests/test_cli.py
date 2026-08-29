@@ -19,6 +19,11 @@ import pytest
 
 from comparative_judgment.cli import main
 
+#: What the top cut was drawn against. Required by `cj cuts`: a pairwise scale
+#: has no origin, so an internally perfect ordering can sit a whole band too high
+#: and nothing downstream would record that it does.
+NOTE = "Critical means the caller acts on a false statement about their booking."
+
 BASE_FINDINGS = textwrap.dedent(
     """
     findings:
@@ -66,6 +71,37 @@ def workspace(tmp_path: Path) -> Path:
 
 def _store(workspace: Path) -> str:
     return str(workspace / ".cj-store")
+
+
+def _disconnected(workspace: Path) -> None:
+    """A store whose judged findings fall into two groups nothing joins.
+
+    F-01/F-02 are judged against each other and F-03/F-04 against each other,
+    with no comparison bridging the two. Bradley-Terry estimates differences, so
+    the two groups have independent origins and their numbers are not comparable.
+
+    The cuts are written through the store rather than through `set_cuts`, which
+    refuses this state by design. That is the point: this constructs what the
+    guard exists to catch, and a user reaches it by retracting the comparison
+    that used to bridge the groups.
+    """
+    from comparative_judgment.core.models import Cut, CutName, Outcome
+    from comparative_judgment.core.store import Store
+
+    main(["init", "--store", _store(workspace)])
+    main(["load", "--store", _store(workspace), "--findings", str(workspace / "findings.yaml")])
+    store = Store.open(workspace / ".cj-store")
+    for left, right in (("F-01", "F-02"), ("F-03", "F-04")):
+        store.append_comparison(
+            left_id=left, right_id=right, outcome=Outcome.LEFT, rater_id="r", session_id="s"
+        )
+    store.put_cuts(
+        [
+            Cut(CutName.CRITICAL_HIGH, "F-01", "F-03", calibration_note=NOTE),
+            Cut(CutName.HIGH_MEDIUM, "F-03", "F-04"),
+            Cut(CutName.MEDIUM_LOW, "F-04", "F-02"),
+        ]
+    )
 
 
 class TestInitAndLoad:
@@ -205,6 +241,8 @@ class TestRevisionRefusal:
                 _store(workspace),
                 "--findings",
                 str(workspace / "findings.yaml"),
+                "--rater",
+                "saso",
                 "--accept-revisions",
             ]
         )
@@ -255,10 +293,40 @@ class TestFullFlow:
     def test_status_warns_about_disconnected_components(
         self, workspace: Path, capsys: pytest.CaptureFixture[str]
     ) -> None:
-        main(["init", "--store", _store(workspace)])
-        main(["load", "--store", _store(workspace), "--findings", str(workspace / "findings.yaml")])
+        """Two judged groups with nothing joining them, which is the real case.
+
+        An earlier version of this test asserted the warning against a batch with
+        *no* comparisons at all, where every item was its own component. That
+        passed while saying something false: an unstarted batch is not
+        disconnected, it is unstarted, and warning about it trains a rater to
+        ignore the one message that matters once judgments exist.
+        """
+        _disconnected(workspace)
         main(["status", "--store", _store(workspace)])
-        assert "disconnected component" in capsys.readouterr().out
+        out = capsys.readouterr().out
+        assert "disconnected component" in out
+        assert "F-01" in out and "F-03" in out
+
+    def test_fit_names_the_components_it_cannot_compare(
+        self, workspace: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        _disconnected(workspace)
+        assert main(["fit", "--store", _store(workspace)]) == 0
+        out = capsys.readouterr().out
+        assert "never compared against" in out
+
+    def test_bands_and_export_refuse_across_components(
+        self, workspace: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """A boundary between two groups reports the prior, not a judgment."""
+        _disconnected(workspace)
+        store = _store(workspace)
+        assert main(["bands", "--store", store]) == 1
+        assert "DisconnectedComparisonsError" in capsys.readouterr().err
+
+        out_path = workspace / "sev.json"
+        assert main(["export", "--store", store, "--out", str(out_path)]) == 1
+        assert not out_path.exists()
 
     def test_fit_prints_the_scale(
         self, workspace: Path, capsys: pytest.CaptureFixture[str]
@@ -288,6 +356,8 @@ class TestFullFlow:
                     f"{ranked[1]}:{ranked[2]}",
                     "--medium-low",
                     f"{ranked[2]}:{ranked[3]}",
+                    "--critical-high-note",
+                    NOTE,
                 ]
             )
             == 0
@@ -319,6 +389,8 @@ class TestFullFlow:
                 f"{ranked[1]}:{ranked[2]}",
                 "--medium-low",
                 f"{ranked[2]}:{ranked[3]}",
+                "--critical-high-note",
+                NOTE,
             ]
         )
         first, second = workspace / "a.json", workspace / "b.json"
@@ -344,6 +416,8 @@ class TestFullFlow:
                 f"{ranked[1]}:{ranked[2]}",
                 "--medium-low",
                 f"{ranked[2]}:{ranked[3]}",
+                "--critical-high-note",
+                NOTE,
             ]
         )
         main(["export", "--store", store, "--target", "3", "--out", str(workspace / "s.json")])

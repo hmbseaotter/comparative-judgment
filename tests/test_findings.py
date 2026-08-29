@@ -16,7 +16,7 @@ import pytest
 
 from comparative_judgment.core.errors import FindingSchemaError
 from comparative_judgment.core.findings import load_findings, parse_findings
-from comparative_judgment.core.models import DetectableBy, Tier
+from comparative_judgment.core.models import REQUIRED_FINDING_KEYS, DetectableBy, Tier
 
 
 def _doc(body: str) -> str:
@@ -143,8 +143,14 @@ class TestRefusals:
         with pytest.raises(FindingSchemaError, match="severity"):
             parse_findings(doc)
 
-    @pytest.mark.parametrize("missing", ["id", "observation", "evidence", "consequence", "tier"])
+    @pytest.mark.parametrize("missing", sorted(REQUIRED_FINDING_KEYS))
     def test_missing_required_key_names_the_key(self, missing: str) -> None:
+        """Derived from the constant, not listed beside it.
+
+        The hand-written list omitted `detectable_by` -- one of the six, and the
+        only one with no case. Taking the parameters from `REQUIRED_FINDING_KEYS`
+        means a key added there cannot arrive without a test.
+        """
         lines = [
             "findings:",
             "  - id: F-001",
@@ -162,20 +168,29 @@ class TestRefusals:
         with pytest.raises(FindingSchemaError, match=missing):
             parse_findings("\n".join(kept))
 
-    def test_empty_consequence_is_refused_by_name(self) -> None:
-        doc = _doc(
-            """
-            findings:
-              - id: F-042
-                observation: something happened
-                evidence: ["e"]
-                consequence: "   "
-                detectable_by: assert
-                tier: defect
-            """
-        )
-        with pytest.raises(FindingSchemaError, match="F-042"):
-            parse_findings(doc)
+    @pytest.mark.parametrize("blank", ["observation", "consequence"])
+    def test_an_empty_text_field_is_refused_by_name(self, blank: str) -> None:
+        """Both fields the guard loops over, not just the one that reached it.
+
+        `findings.py` showed 100% line coverage with only the consequence case
+        written, because the shared loop body was executed by that case. Line
+        coverage counts lines, not cases -- worth remembering when reading any
+        percentage in this project.
+        """
+        lines = [
+            "findings:",
+            "  - id: F-042",
+            "    observation: something happened",
+            '    evidence: ["e"]',
+            "    consequence: someone is affected",
+            "    detectable_by: assert",
+            "    tier: defect",
+        ]
+        emptied = [
+            f'    {blank}: "   "' if ln.strip().startswith(f"{blank}:") else ln for ln in lines
+        ]
+        with pytest.raises(FindingSchemaError, match=f"empty {blank}"):
+            parse_findings("\n".join(emptied))
 
     def test_duplicate_id_is_refused(self) -> None:
         doc = _doc(

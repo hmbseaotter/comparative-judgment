@@ -26,7 +26,7 @@ from pathlib import Path
 
 import yaml
 
-from comparative_judgment.core.errors import FindingSchemaError
+from comparative_judgment.core.errors import FindingSchemaError, FindingsFileError
 from comparative_judgment.core.models import (
     FORBIDDEN_FINDING_KEYS,
     REQUIRED_FINDING_KEYS,
@@ -60,7 +60,11 @@ class LoadResult:
 
 def parse_findings(text: str, *, where: str = "findings") -> LoadResult:
     """Parse a findings document, admitting only defects."""
-    document = yaml.safe_load(text)
+    try:
+        document = yaml.safe_load(text)
+    except yaml.YAMLError as exc:
+        msg = f"{where} is not valid YAML: {exc}"
+        raise FindingsFileError(msg) from exc
     if document is None:
         return LoadResult(admitted=(), excluded_questions=())
 
@@ -121,6 +125,13 @@ def parse_findings(text: str, *, where: str = "findings") -> LoadResult:
             field(raw, "evidence", item_where, error=_ERR), item_where, error=_ERR
         )
         evidence = tuple(as_str(e, item_where, error=_ERR) for e in evidence_raw)
+        if not [e for e in evidence if e.strip()]:
+            msg = (
+                f"{item_where}: {finding_id} carries no evidence. The fragments are what"
+                " let a finding be judged against another without the transcript open,"
+                " and they are the field this schema exists to preserve."
+            )
+            raise _ERR(msg)
 
         detectable = DetectableBy(
             as_str(field(raw, "detectable_by", item_where, error=_ERR), item_where, error=_ERR)
@@ -147,4 +158,9 @@ def parse_findings(text: str, *, where: str = "findings") -> LoadResult:
 
 def load_findings(path: Path) -> LoadResult:
     """Read and parse a findings document from disk."""
-    return parse_findings(path.read_text(encoding="utf-8"), where=path.name)
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError as exc:
+        msg = f"cannot read findings document {path}: {exc}"
+        raise FindingsFileError(msg) from exc
+    return parse_findings(text, where=path.name)

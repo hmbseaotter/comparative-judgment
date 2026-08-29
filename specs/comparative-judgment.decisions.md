@@ -3,7 +3,7 @@
 - **Project:** comparative-judgment — severity scoring by pairwise comparison
 - **Identity:** A standalone tool that lets a rater assign defensible severity to findings by answering only "which of these two is worse?", never by picking a number on a scale.
 - **Spec:** `specs/comparative-judgment.md`
-- **Status:** D1–D18 recorded. D11–D13 at the phase-1 plan gate; D14–D15 at the sweep that followed; D16 during the build. D1–D8 from the /specify session of 2026-08-28; D9 settled at emit, resolving a contradiction the linter surfaced.
+- **Status:** D1–D26 recorded. D1–D8 from the /specify session of 2026-08-28; D9 settled at emit, resolving a contradiction the linter surfaced; D10 at the cross-repository interface pass; D11–D13 at the phase-1 plan gate; D14–D15 at the sweep that followed; D16 during the build; D17–D18 at the post-build sweep; **D19–D26 after an independent audit of 0.5.0** — a session that had written none of the code, read the spec, the record and the source, then ran the tool against constructed inputs and reported forty-one findings.
 - **Legend:** ✅ decided · 🔶 open / revisit · ⏭️ deferred to a later phase
 
 <!-- rules-required-from: D9 -->
@@ -369,26 +369,199 @@ Only *judged* findings are reported. A change to something nobody compared costs
 
 ---
 
-## Not checked — as of 0.5.0 @ D18
+## D19 — The sequence number is re-read, never cached
 
-*Refreshed after the phase-1 build and the sweep that followed it. Four earlier entries were retired because the build resolved them: convergence is now measured (D16), the performance target is benchmarked at 0.14s rather than estimated, the consuming harness's spec was amended, and the trimmed phase was actually built.*
+**Fork:** An independent audit of 0.5.0 showed two `Store` handles on one store producing duplicate `seq` numbers. Because a retraction addresses a comparison *by* `seq`, and `active_comparisons()` filters with `seq not in retracted`, one retraction then withdrew **every** record sharing that number — silent, permanent corruption of the log this project calls the product. The cache was itself a 0.5.0 change, introduced to end an O(n²) session cost; the tests written in the same sweep covered the sequential-reopen case and missed the concurrent one.
 
-- **The terminal UI has never been run by a human.** Its formatting and its delegation to the session are tested, but nobody has watched it render. `textual` remains an assumed-suitable choice, now assumed at one further remove.
-- **`MAX_ITER` = 200,000 is extrapolated past n=100.** Measured at n=50, 75 and 100; the trend beyond that is inference.
+**Options considered**
+- **(A) Drop the cache; re-read the last sequence number from the log at each append.**
+- **(B) Keep the cache and take an exclusive lock on the store directory** for the process lifetime, failing by name when it is held.
+- **(C) Both.**
+
+**Decision ✅** — **(A).** `_next_seq()` is now `_last_seq() + 1`, where `_last_seq()` seeks to the end of the log and reads back only the final record, growing its window until a complete line is in hand rather than assuming one fits.
+
+**Why** — The correctness price of the cache was not worth its performance benefit, and (A) does not actually pay that benefit back: a tail seek is O(1) in the log's length, exactly like the cache and unlike the full-file parse the cache replaced. So the fix costs nothing measurable and removes the failure entirely for the case that is actually reachable — a `cj compare` open in one terminal while `cj load --accept-revisions` runs in another, or the pattern the tests themselves use.
+
+(B) buys correctness under true simultaneity at the price of a lock file in a store layout the specification pins, plus a stale-lock recovery story after any crash — support burden for a scenario the spec never contemplates. (C) pays both prices.
+
+**Consequences / caveats** — Two processes appending at the *same instant* can still collide; (A) closes interleaving, not simultaneity. This is recorded in *Not checked* rather than fixed, because the tool is single-rater by design in phase 1 and multi-rater analysis is phase 3, which is where a locking model belongs if one is ever needed.
+
+**Rule** — Acceptance criterion, enforced by test: two `Store` handles opened on one store and appended to alternately produce strictly increasing, unique `seq` values, and retracting one leaves the other active. A second asserts a record longer than the tail window still resolves.
+
+---
+
+## D20 — Creating a store refuses to overwrite one
+
+**Fork:** `cj init` against a populated store rewrote `meta.json` and `cuts.json`, destroying all three band cuts and the excluded-question summary, then exited **0** printing `created store at …`. The store's stated integrity property is *"Nothing is ever deleted; a retraction appends a record marking a prior comparison withdrawn."* This was a deletion — of the highest-value record in the store.
+
+**Options considered**
+- **(A) Refuse when `meta.json` exists; add `--force`, which still refuses once judgments exist.**
+- **(B) Refuse unconditionally**, with no escape hatch.
+- **(C) Make `init` idempotent** — create what is missing, leave what is there.
+
+**Decision ✅** — **(A).**
+
+**Why** — The three cuts are the only absolute judgments the tool ever asks for; the whole "exactly three, regardless of batch size" claim rests on them. Losing them to a command whose name reads as safe, with a success message and a zero exit, is the worst shape a data-loss bug can take.
+
+(B) is nearly right and was close. It loses to (A) only on the false-start case — a store created at the wrong path, before any judgment — where forcing a user to reach for `rm -rf` is worse advice than giving them a flag. The flag is safe precisely because it *keeps* the refusal that matters: once a single judgment exists, `--force` refuses too, because re-initialising would leave those judgments referring to findings and cuts that no longer exist.
+
+(C) is the most seductive and the most dangerous: "leave what is there" quietly becomes "and silently keep whatever was stale", which is how a store ends up half-belonging to two batches.
+
+**Rule** — Acceptance criteria, enforced by test: `init` against an existing store refuses by name and changes no file; the cuts and the load summary both survive; `--force` re-initialises an unjudged store and still refuses a judged one.
+
+---
+
+## D21 — Connectivity is enforced, not merely reported
+
+**Fork:** The requirement — *"WHEN the comparison graph contains more than one connected component, the system SHALL name the components and SHALL NOT report scale values as comparable across them"* — was half-built. `core/graph.py` existed, `cj status` warned, and a unit test covered `components()`. But `place()` and `cmd_fit` never asked, so `bands` and `export` both exited **0** having drawn a boundary between two findings that had never been compared. `DisconnectedComparisonsError` was defined for exactly this and was never raised: a defined-but-unraised error for an unimplemented requirement, the two pointing at each other.
+
+**Options considered**
+- **(A) Refuse in `place()`, and name the components in `fit`.**
+- **(B) Warn everywhere and continue.**
+- **(C) Band each component independently**, against its own cuts.
+
+**Decision ✅** — **(A).** `Session.require_connected()` raises over the *judged* items; `bands` and `export` refuse and write nothing; `fit` prints the values and then names the groups it cannot compare. `set_cuts` refuses too, so the state is unreachable through the tool's own commands.
+
+**Why** — Bradley-Terry estimates *differences*. Two groups never compared against each other have independent, arbitrary origins, so a band assigned across that gap reports the prior rather than a judgment — the identical failure the `unplaced` mechanism already exists to prevent, arriving by a different route. Severity is what the consuming harness joins on, so a prior-derived band is not a cosmetic defect: it is a wrong answer with provenance attached.
+
+(B) is what `status` already did, and the audit's evidence is what it looks like in practice: the warning was in one command and the wrong answer came out of three others. (C) is a real design, and it is phase 3's — multi-rater analysis is where independent scales get reconciled, and inventing a partial version here would be a scale-per-component with no way to relate them.
+
+**Consequences / caveats** — Connectivity is computed over items with at least one appearance. Counting unjudged items would report every part-way batch as disconnected, and a warning that fires constantly is one nobody reads. A test asserting the old behaviour — the warning firing on a batch with *no* comparisons at all — was rewritten: it had been passing while saying something false.
+
+**Rule** — Acceptance criteria, enforced by test: `bands` and `export` over a disconnected graph refuse by name and write nothing; `fit` names the components; `status` names them and identifies members.
+
+---
+
+## D22 — A finding removed from the document is refused, like a changed one
+
+**Fork:** D18 guards findings whose *text* changed. Nothing guarded findings that had *vanished*. `put_findings` replaces the index wholesale, so deleting one line from the findings file dropped that finding from the index while its comparisons stayed in the log; the fit then skipped them and the surviving partner's appearance count silently fell. A judgment a human made was erased by an edit to a different line of the file.
+
+**Options considered**
+- **(A) Refuse the load, naming each removed judged finding and its comparison count; a distinct `--accept-removals` records the removal in the log.**
+- **(B) Reuse `--accept-revisions`** for both.
+- **(C) Retract the orphaned comparisons automatically.**
+- **(D) Leave it — a deletion is deliberate by definition.**
+
+**Decision ✅** — **(A).**
+
+**Why** — This is D18's harm through the adjacent door, and D18's reasoning transfers without modification: nothing can distinguish a deliberate cut from a stray edit, so the tool refuses and a **human** decides. (D) assumes the deletion was intended and read; the case that motivates the guard is precisely the one where it was not.
+
+(B) is cheaper and wrong for a specific reason: a rater who has learned that `--accept-revisions` means "yes, I edited some wording" would use it reflexively, and it would then also wave through the loss of an entire item. Two flags because they are two different acceptances, and the more consequential one should not be reachable by habit.
+
+(C) is a retraction the rater never made, recorded in their name in an append-only log. The log is the product; nothing may write a judgment into it on a human's behalf.
+
+**Consequences / caveats** — Adds `RemovalAccepted` to the log's record kinds and `Removal` to the pending-report types, mirroring `RevisionAccepted`/`Revision`. `RevisionAccepted` also gains a `comparisons` field it should have had: the count at the moment of acceptance, which is what the human was shown, and which a recomputation would later disagree with.
+
+**Rule** — Acceptance criteria, enforced by test: a judged finding removed from the document is refused by name with its comparison count and the judgments survive; an unjudged one may be removed freely; accepting appends a removal record with rater and count and changes the log hash.
+
+---
+
+## D23 — The run id is derived, not minted
+
+**Fork:** The run id was specified in four places across the spec and the build prompt, carried a `[P1]` acceptance criterion, and was implemented nowhere. This is **D18's shape recurring inside the sweep that named it** — specified, criterion written, never built, and the phase reported 31 of 31 against it. What a run id *is* was never decided, which is most of why it was never built.
+
+**Options considered**
+- **(A) A content hash of the log hash, the anchor-set version and the cuts.**
+- **(B) A UUID minted per export.**
+- **(C) A monotonic counter in `meta.json`.**
+
+**Decision ✅** — **(A).** `run_id()` hashes `(log_hash, anchor_set_version, each cut's name, anchors and calibration note)`, truncated to sixteen hex characters.
+
+**Why** — It identifies the *result* rather than the act of exporting. Two exports over an unchanged log, anchor set and set of cuts carry the same id; changing any of the three changes it. That answers a question worth asking — "is this the same severity assignment I saw before?" — which neither (B) nor (C) can answer at all.
+
+It is also the only option that leaves the determinism NFR intact. The spec says two fits are byte-identical *"excluding a run-metadata envelope"*; there was no envelope, so the byte-identity test passed trivially. (B) and (C) would both have forced that exclusion to be built and the test weakened. (A) needs neither.
+
+The cuts are in the hash because they are **not in the log**. Three different boundaries over one set of judgments are three different results, and an id that could not tell them apart would be worse than none.
+
+**Consequences / caveats** — A cosmetic edit to a calibration note changes the id. That is intended: the note is part of what the bands mean, and a band whose stated calibration has changed is not the same claim.
+
+**Rule** — Acceptance criteria, enforced by test: the severity payload carries a run id; two exports over an unchanged log carry the same one, *including* the id; changing a cut changes it.
+
+---
+
+## D24 — The seam covers the whole tool, not only the comparison loop
+
+**Fork:** The requirement says the system exposes **exactly one** session interface to presentation layers. `Session` had no way to set cuts, load findings or export, so `cli.py` reached into `session._store` and `session._fit()` five times and imported six core modules directly. The scan enforcing the seam globbed `ui/` only — so it was green, and blind to the one front end actually breaking the rule.
+
+**Options considered**
+- **(A) Widen the seam:** add `Session.load`, `set_cuts`, `fit`, `export`, `components`, `open`, `create`; widen the scan to every module outside `core/`, derived from the layout.
+- **(B) Record an exception:** declare the seam covers the comparison loop only, and allow configuration commands to use core directly.
+
+**Decision ✅** — **(A).**
+
+**Why** — D3's whole purpose is that phase-1 work should not become throwaway when the web adapter arrives. Under (B) that adapter cannot set a cut without importing `Store` and `Cut` and writing to the store itself — re-solving, in a second front end, the operation this tool describes as its most important. That is throwaway work by construction, and D3 exists to prevent exactly it.
+
+The scan is the part that keeps this closed, and it was the more interesting failure: **a mechanism whose coverage was narrower than the rule it enforced.** It is now derived from the package layout rather than listed, so a new front end cannot arrive outside it, and a companion test asserts the derived set actually contains both front ends. A second scan catches the reach-around an import scan cannot see — `session._store` in a presentation module.
+
+**Consequences / caveats** — `core.errors` joins `session` and `models` in the allowed set. Catching a named refusal is part of the contract, not a reach around it; the alternative is a front end that cannot tell a refusal from a crash. `Session.record` accordingly raises `NothingToJudgeError` rather than a bare `ValueError`, which would have escaped the CLI's handler as a traceback.
+
+**Rule** — Acceptance criteria, enforced by test: the seam scan's universe contains every presentation module and is derived from the layout; no front end imports a core module outside the allowed three; no front end touches a private session attribute; no module in the package raises a bare builtin error.
+
+---
+
+## D25 — The top cut must carry a calibration note
+
+**Fork:** Cut calibration was `[P1]` and in scope — *"pinning at least the top cut to an absolute statement so the relative scale acquires an origin"* — and `Cut.calibration_note` existed, defaulted to `""`, round-tripped through the store, and was set by nothing. In production it was always empty. There was **no EARS requirement and no acceptance criterion** for it, which is why the phase-1 walkthrough could not have caught it: the in-scope list named it and nothing else did.
+
+**Options considered**
+- **(A) Build it: `cj cuts --critical-high-note`, required on the top cut, carried into the severity file.**
+- **(B) Defer to phase 2**, amending the in-scope tag to `[P2]`.
+
+**Decision ✅** — **(A).** `set_cuts` refuses without a non-empty note on the top cut; all three notes are surfaced in `cj cuts` output and published under `calibration` in the severity file.
+
+**Why** — The build prompt names the exact failure it prevents: *"a pairwise scale is relative with no origin — the ordering can be internally perfect while the whole set sits a band too high."* Everything downstream inherits that offset, and the severity file the consuming harness joins on would carry no record that it might. Deferring means phase 1 ships severity files with an uncalibrated origin and nothing saying so.
+
+Required rather than optional because an optional field on the path of least resistance is an empty field. It is required on the **top** cut only: that is what the in-scope line asks for, and demanding three notes to place three cuts is the kind of friction that gets worked around.
+
+**Consequences / caveats** — Every existing call site that sets cuts must supply a note, including in tests. The note is part of the run id (D23), so editing it changes the id.
+
+**Rule** — Requirement plus acceptance criteria, enforced by test: `cuts` without a top-cut note refuses and writes nothing; the note reaches the severity file under `calibration`.
+
+---
+
+## D26 — Validate, then write — everywhere
+
+**Fork:** Three separate commands mutated the store *before* checking their input, in a tool whose stated failure model is that an unrecoverable failure *"halts with a named cause and writes nothing"*. `cj cuts` persisted a cut naming a nonexistent finding and then reported the error, leaving `bands`, `export` and `compare` all broken with nothing telling the user how to recover. Four ordinary error paths — a missing findings file, malformed YAML, a corrupt `meta.json`, a truncated log line — escaped as raw tracebacks. And a retraction naming no live comparison was accepted silently.
+
+**Decision ✅** — Ordering inverted in every case, and every parse boundary now raises a named refusal: `_loads` wraps `json.loads`, `load_findings` wraps the read and `parse_findings` wraps `yaml.safe_load`, `write_severity_file` wraps the write, and `append_retraction` refuses a `retracts_seq` that names nothing live.
+
+**Why** — These are one defect wearing four hats, and the store cases are the sharpest. `_append_log` flushes per record *specifically* so that a crash cannot lose a judgment — and a crash during that write is exactly what leaves a truncated final line, which was then unreadable with a stack trace pointing into the standard library. The one mechanism designed for crash-safety produced the one input the reader could not handle.
+
+The refusals are raised at the parse boundary rather than translated in `main()`, because `core` should not depend on the CLI to be well-behaved: a web adapter would otherwise have to re-implement the same translation, and would get it subtly different.
+
+A stray retraction is inert to the fit, which filters by a set. It is not inert to the log's **hash**, which is published as provenance in every severity file — so it changes the fingerprint of a history without changing what that history says.
+
+**Consequences / caveats** — `evidence: []` is now refused too. Observation and consequence were guarded by name and evidence was not, leaving the one field the schema exists to preserve as the one that could be empty.
+
+**Rule** — Acceptance criteria, enforced by test: `cuts` naming an unknown finding leaves `cuts.json` byte-identical; a missing findings file, malformed YAML, a corrupt `meta.json` and a truncated log line each exit non-zero with a named refusal and no traceback; a stray or repeated retraction is refused; empty evidence is refused.
+
+---
+
+## Not checked — as of 0.6.0 @ D26
+
+*Refreshed after an independent audit of 0.5.0 by a session that had written none of this code. Three earlier entries were retired because the audit resolved them: cut inversion has now been observed through the front end rather than only constructed in tests, the uncovered-lines list was measured rather than recalled, and the O(n²) claim was corrected below. **The most useful thing the audit produced was not a finding but a shape:** of forty-one, none was a mistake in the mathematics — the part checked hardest — and the recurring failure was a guard whose coverage was narrower than the rule it enforced, green and blind at the same time.*
+
+- **The terminal UI has still never been run by a human.** Its formatting, its delegation and now its three completion messages are tested, but nobody has watched it render. The audit found the "batch complete" message on an inverted cut by reading state, not by seeing it — which is exactly the kind of defect a human would have spotted in ten seconds and a test suite did not spot in a hundred and seventy.
+- **`MAX_ITER` = 200,000 is extrapolated past n=100.** Measured at n=50, 75 and 100; the trend beyond that is inference. The audit accepted D16's figures rather than re-measuring them, so they have been confirmed by nobody.
 - **`PLACEMENT_COMPARISONS` = 3 is a fixed count, not a measured optimum.** The adaptive version is phase 3; until then every placement spends exactly three judgments even when the first two settle it.
-- **λ = 0.5 is conventional, not validated.** No sensitivity analysis was run; the claim that it does not change which side of a cut an item falls is reasoned rather than measured.
-- **The appearance target of 10 is the same untested estimate it was adopted from.** The only real data point so far — five findings at target 4, costing 2.0 comparisons per item — says nothing about a corpus of seventy.
-- **Cut inversion has never been observed in use**, only constructed in tests.
-- **No literature review was performed.** The method and the ten-appearances figure come from general knowledge of comparative judgment practice, not from cited sources.
+- **λ = 0.5 is conventional, not validated.** No sensitivity analysis was run; the claim that it does not change which side of a cut an item falls is reasoned rather than measured. The audit did not test it either.
+- **The appearance target of 10 is the same untested estimate it was adopted from.** Its *arithmetic* is now measured — the audit ran 50 findings at target 10 and spent exactly 251 comparisons, landing on the spec's ~250 estimate. Whether ten appearances buys enough **reliability** is still untested, and that is the half the number was chosen for.
+- **Interactive latency is unmeasured as a requirement.** The only performance NFR covers the fit (0.14 s against a five-second budget). The audit measured what a rater actually feels: 28 ms per keypress at 25 findings, 42 ms at 50, 64 ms at 100 — imperceptible at the ~70-finding corpus this targets. It is roughly linear in *n*, because `next_pair()` and `record()` between them re-read the log and the findings index about nine times per judgment. Extrapolated to 1,000 findings that is on the order of half a second per keypress, in a tool whose entire premise is that per-comparison friction cancels the method's benefit (D3). Not a phase-1 defect; a phase-2 requirement waiting to be written.
+- **The remaining O(n²) is in the session, not the store.** D19 removed the store's, and the 0.5.0 changelog's claim that "the sequence counter is cached, ending an O(n-squared) session cost" was narrower than it read: one such cost ended, and the one above did not. Stated here so the next reader does not conclude the session is linear.
+- **Concurrency beyond interleaved appends is unexplored.** D19 closes the reachable case — two handles appending in turn. Two processes appending at the *same instant* can still collide, and nothing in the store takes a lock. Demonstrated at its simplest by the audit; cross-process behaviour is inferred from the same code path, not executed.
+- **No literature review was performed.** The method and the ten-appearances figure come from general knowledge of comparative judgment practice, not from cited sources. The audit did not check them against sources either.
 - **Whether bands are recomputed or frozen after a refit was decided in principle** (freeze, propose revisions) and is still not written as a requirement.
-- **Carrying judgments across an accepted revision (D18) is unmeasured.** Nobody knows how far text can drift before old judgments stop meaning anything, and the tool tells a rater only that the hashes differ — not how large the change was.
-- **The uncovered 2%** is the `compare` subcommand's launch path, textual's `compose`, and the `__main__` guard — reachable only by starting a real terminal app.
-- **Not swept this pass: the harness project.** Its specs were not re-read. The interface scanner passes, but that checks six keys and two claims, not agreement in general.
+- **Carrying judgments across an accepted revision (D18) or a removal (D22) is unmeasured.** Nobody knows how far text can drift before old judgments stop meaning anything, and the tool tells a rater only that the hashes differ — not how large the change was.
+- **`anchor_set_version` cannot be set by any caller.** `Store.create` accepts it, nothing passes it, and `cj init` has no flag, so it is permanently `"1"` while the severity file publishes it as provenance and the run id hashes it. Reserved until anchor import/export lands in phase 2; a version that never changes is honest only while there is one anchor set.
+- **The venv runs Python 3.14; mypy targets 3.12.** CI now runs 3.12 and 3.13 (D-none, part of the audit sweep), so the gap is narrowed but not closed: the interpreter development actually happens on is in neither matrix row.
+- **The uncovered 2%** is textual's `compose`, the `compare` subcommand's launch path, the `__main__` guard, and two OSError branches reachable only by revoking read permission mid-run. Measured, not recalled — the previous entry named three things when there were five.
+- **Not swept this pass: the harness project.** Its specs were not re-read, and the audit explicitly did not read that repository, so the cross-repository interface claims (D5, D10, D15) are unverified by both passes. The scanner D15 describes lives there and neither of us ran it.
+- **This audit was not itself audited.** Every finding here was reproduced before acting on it — the eight executable ones against the audit's own script, the rest by reading the code it named — but a second independent pass would be looking at work that has now been reviewed twice by the same two perspectives.
 
 ## Document status
 
-Decisions **D1–D18** recorded. The most consequential is **D2**, which overturns the source design's central algorithmic choice; **D5** additionally settles a gap in a second project's specification, which must be amended to match.
+Decisions **D1–D26** recorded. The most consequential is **D2**, which overturns the source design's central algorithmic choice; **D5** additionally settles a gap in a second project's specification, which must be amended to match.
 
-Spec: `specs/comparative-judgment.md`. Build prompt: `specs/comparative-judgment.build-prompt.md` (phase 1).
+Spec: `specs/comparative-judgment.md`. Build prompt: `specs/comparative-judgment.build-prompt.md` (phase 1, frozen).
 
-Any new fork encountered during the build is appended here in the same shape, and from **D9** onward each entry ends with a `**Rule**` line naming what enforces it. Numbering continues from **D19**.
+Any new fork encountered during the build is appended here in the same shape, and from **D9** onward each entry ends with a `**Rule**` line naming what enforces it. Numbering continues from **D27**.

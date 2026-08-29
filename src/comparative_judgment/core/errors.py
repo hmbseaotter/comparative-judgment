@@ -20,6 +20,51 @@ class StoreSchemaError(ComparativeJudgmentError):
     """
 
 
+class StoreExistsError(ComparativeJudgmentError):
+    """A store was asked to be created where one already exists.
+
+    Creating writes a fresh `meta.json` and an empty `cuts.json`, so running it
+    over a populated store would destroy the three band cuts — the only absolute
+    judgments the tool ever asks for — under a command whose name reads as safe.
+    """
+
+
+class NothingToJudgeError(ComparativeJudgmentError):
+    """A judgment was offered when the session had no pair to judge.
+
+    A refusal like every other one here rather than a bare `ValueError`: an error
+    that is not one of these escapes the CLI's handler and reaches the user as a
+    traceback, which is the one thing this module exists to prevent.
+    """
+
+
+class SeverityWriteError(ComparativeJudgmentError):
+    """The severity file could not be written where it was asked to go.
+
+    A missing directory or a permission refusal is an ordinary mistake, not a
+    crash, and the last step of a session that may have cost several hundred
+    judgments is a poor place to hand someone a stack trace.
+    """
+
+
+class RetractionError(ComparativeJudgmentError):
+    """A retraction names no live comparison.
+
+    The log's hash is published as provenance in every severity file, so a record
+    referring to nothing is not merely inert: it changes the fingerprint of a
+    history without changing what that history says.
+    """
+
+
+class FindingsFileError(ComparativeJudgmentError):
+    """The findings document could not be read or parsed.
+
+    Missing, unreadable, or not valid YAML. Separate from
+    :class:`FindingSchemaError`, which is about a document that parsed and then
+    said the wrong thing.
+    """
+
+
 class NoStorePathError(ComparativeJudgmentError):
     """No store path was supplied.
 

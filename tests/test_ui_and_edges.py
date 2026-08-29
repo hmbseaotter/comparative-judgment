@@ -15,6 +15,7 @@ from typing import Final
 import pytest
 
 from comparative_judgment.core.errors import (
+    CutError,
     FindingSchemaError,
     StoreSchemaError,
 )
@@ -202,8 +203,12 @@ class TestSessionEdges:
     def test_placement_stops_when_a_cut_has_inverted(self, tmp_path: Path) -> None:
         """A boundary that no longer means anything cannot guide placement.
 
-        It offers no pair rather than guessing; `place()` is what reports the
-        inversion by name.
+        It offers no pair rather than guessing -- and the compensating half is
+        asserted here too. The earlier version of this test checked only that
+        `next_pair()` returned `None`, with a docstring claiming `place()` reports
+        the inversion by name and no assertion making that so. The suite therefore
+        encoded the *swallowing* as correct while the front end rendered that same
+        `None` as "batch complete".
         """
         session = _session(tmp_path)
         while session.next_pair() is not None:
@@ -219,6 +224,74 @@ class TestSessionEdges:
         )
         session._invalidate()
         assert session.next_pair() is None
+
+        with pytest.raises(CutError, match="medium_low"):
+            session.place()
+
+        progress = session.progress()
+        assert progress.blocked_reason
+        assert "medium_low" in progress.blocked_reason
+        assert not progress.complete
+
+    def test_the_front_end_says_blocked_not_complete(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The rater sits in front of this surface, and it said "complete"."""
+        session = _session(tmp_path)
+        while session.next_pair() is not None:
+            session.record(Outcome.LEFT)
+        ranked = [e.finding_id for e in session._fit().ranked()]
+        session._store.put_cuts(
+            [
+                Cut(CutName.CRITICAL_HIGH, ranked[0], ranked[1]),
+                Cut(CutName.HIGH_MEDIUM, ranked[1], ranked[2]),
+                Cut(CutName.MEDIUM_LOW, ranked[3], ranked[2]),
+            ]
+        )
+        session._invalidate()
+
+        app = ComparisonApp(session)
+        widgets: dict[str, _StubWidget] = {}
+        monkeypatch.setattr(
+            app, "query_one", lambda s, _t=None: widgets.setdefault(s, _StubWidget())
+        )
+        app.on_mount()
+        assert "BLOCKED" in widgets["#progress"].text
+        assert "complete" not in widgets["#progress"].text
+        assert "medium_low" in widgets["#left"].text
+
+    def test_finishing_placement_is_not_reported_as_an_appearance_target(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """After cuts exist, "every item at N appearances" is not what happened.
+
+        The completion message was unconditional, so the placement path — which
+        stops after about three comparisons per item, deliberately — reported the
+        bootstrap's finishing condition instead of its own.
+        """
+        session = _session(tmp_path)
+        while session.next_pair() is not None:
+            session.record(Outcome.LEFT)
+        ranked = [e.finding_id for e in session._fit().ranked()]
+        session._store.put_cuts(
+            [
+                Cut(CutName.CRITICAL_HIGH, ranked[0], ranked[1]),
+                Cut(CutName.HIGH_MEDIUM, ranked[1], ranked[2]),
+                Cut(CutName.MEDIUM_LOW, ranked[2], ranked[3]),
+            ]
+        )
+        session._invalidate()
+        assert session.next_pair() is None
+
+        app = ComparisonApp(session)
+        widgets: dict[str, _StubWidget] = {}
+        monkeypatch.setattr(
+            app, "query_one", lambda s, _t=None: widgets.setdefault(s, _StubWidget())
+        )
+        app.on_mount()
+        assert "placement complete" in widgets["#progress"].text
+        assert "appearances" not in widgets["#progress"].text
+        assert "cj bands" in widgets["#left"].text
 
 
 class TestGraphMergeDirection:
