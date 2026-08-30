@@ -38,7 +38,9 @@
 
 **Why** — A general-purpose severity tool will eventually be pointed at real production findings by someone, and a default that quietly wants committing is a trap laid for that person. (B) suits this project specifically — shared anchors travelling with the repo is exactly what the source design's bootstrap argues for — but it optimises for the author at a stranger's expense. (C) was rejected because the source design explicitly frames this as "a clean standalone open-source artifact in its own right", and the decision to separate it from the harness was made partly so it could stand alone.
 
-**Consequences / caveats** — The author's own anchor set for the harness corpus can still be committed deliberately, since those findings are synthetic. The README must state that findings text may be sensitive.
+**Consequences / caveats** — The author's own anchor set for the harness's **design set** can still be committed deliberately, since those findings are synthetic *and* public. The README must state that findings text may be sensitive.
+
+> **Narrowed after the harness's D61.** This line originally licensed committing the anchor set *"since those findings are synthetic"*. The harness's **held-out** findings are synthetic too, so as written it licensed them equally — and a findings document's `observation` and `consequence` for a held-out call are that call's defect label written out in prose. This repository stands alone by D1's own reasoning, which means it carries none of the harness's held-out machinery: no absence scan, no declaration files, no CI assertion about labels. The property that licenses committing is *design-set*, not *synthetic*. Nothing is retracted by this note — no store exists in this tree and no anchor or comparison data is tracked — but the sentence would have been read at phase 5, when the held-out findings are scored with this tool, which is exactly when the wrong word would have been load-bearing.
 
 ---
 
