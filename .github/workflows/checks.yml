@@ -49,7 +49,10 @@ jobs:
         run: uv run --frozen pytest -q
 
       - name: Types
-        run: uv run --frozen mypy --strict src
+        # As configured in pyproject.toml, which declares files = ["src", "tests"].
+        # This ran `--strict src`, so the declared scope and the enforced scope were
+        # different and only the narrower one ever ran -- the wider one failed.
+        run: uv run --frozen mypy
 
       - name: Lint
         run: uv run --frozen ruff check

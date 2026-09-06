@@ -26,3 +26,7 @@ htmlcov/
 .mypy_cache/
 .ruff_cache/
 .pytest_cache/
+
+# A per-machine log of `claude --resume` invocations. Tool-generated,
+# names session ids, and belongs to nobody's checkout but this one.
+resume_session.txt

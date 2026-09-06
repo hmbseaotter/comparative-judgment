@@ -168,7 +168,13 @@ class TestNoModelDependency:
 
     def test_no_language_model_package_is_locked(self) -> None:
         """The manifest is the intent; the lockfile is what would install."""
-        locked = {package["name"].lower() for package in _locked_packages()}
+        # `str(...)` rather than a cast: a lockfile entry's `name` is `object`
+        # to the type checker, and this file's own subject is that a declared
+        # constraint must be enforced rather than asserted. `mypy` as configured
+        # in `pyproject.toml` covers `tests` and failed here, while CI ran
+        # `--strict src` and passed -- the declared scope and the enforced scope
+        # were different, and only the narrower one ever ran.
+        locked = {str(package["name"]).lower() for package in _locked_packages()}
         assert not _model_packages_in(locked)
 
 
