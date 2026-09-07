@@ -647,6 +647,13 @@ The cost of (A) is a list of exceptions in place of a list of targets, and that 
 
 ## D31 — The interface check is triggered from the repository that breaks it
 
+> **Amended the same day.** The Consequences below say the dispatch *"fires only when a push
+> changed something under `specs/`"*. That was true and it made the dispatch testable only by
+> doing the thing it guards — a manual run skipped the job entirely, so the wiring could not be
+> exercised on demand and the token's scope could not be proven without a spec push. A manual
+> run now reaches the job and skips the narrowing, and a refused dispatch fails loudly rather
+> than being read out of `gh`'s exit code by whoever is looking.
+
 **Fork:** D15 built a scanner comparing this specification against the consuming harness's, and put it in the harness, where it runs in the harness's CI. So an edit *here* that breaks the shared findings interface passes here, and goes on passing until that repository happens to build. D15's Rule named the gap and left it: *"judgment, not checkable until it is wired into a hook."* Wire it — and if so, from which side?
 
 **Options considered**

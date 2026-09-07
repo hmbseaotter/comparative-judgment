@@ -968,6 +968,11 @@ class TestDocumentation:
             ("voice-agent-eval-harness", "the dispatch no longer names the harness"),
             ("HARNESS_DISPATCH_TOKEN", "the dispatch no longer reads its token"),
             ("^specs/", "the dispatch no longer narrows to spec changes"),
+            (
+                "workflow_dispatch",
+                "the dispatch can no longer be exercised by a manual run, so the only "
+                "way to test it is to push the change it exists to check",
+            ),
         ):
             assert fragment in workflow, (
                 f"{why}, so a spec change here can break the shared findings interface "

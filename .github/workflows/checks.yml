@@ -76,7 +76,12 @@ jobs:
   # and the failure lands beside the other checks that read those two specs.
   notify-harness:
     needs: checks
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    # A manual run reaches this job too, which is the only way to exercise the
+    # dispatch without pushing a spec change. A mechanism testable only by doing
+    # the thing it guards is one nobody tests.
+    if: >-
+      (github.event_name == 'push' && github.ref == 'refs/heads/main')
+      || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -91,7 +96,11 @@ jobs:
         # changed. Narrow on purpose: a trigger that fires on everything is one
         # whose failures stop being read.
         run: |
-          if git diff --name-only HEAD^ HEAD | grep -q '^specs/'; then
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "A manual run is a deliberate test of the dispatch, so it skips"
+            echo "the narrowing below and asks the harness regardless."
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          elif git diff --name-only HEAD^ HEAD | grep -q '^specs/'; then
             echo "changed=true" >> "$GITHUB_OUTPUT"
           else
             echo "changed=false" >> "$GITHUB_OUTPUT"
@@ -114,5 +123,13 @@ jobs:
             echo "::warning::is unchecked against the harness until it next builds."
             exit 0
           fi
-          gh workflow run checks.yml \
-            --repo hmbseaotter/voice-agent-eval-harness --ref main
+          if gh workflow run checks.yml \
+               --repo hmbseaotter/voice-agent-eval-harness --ref main; then
+            echo "Asked the harness to run its interface scanner."
+          else
+            echo "::error title=Dispatch refused::HARNESS_DISPATCH_TOKEN is set but the"
+            echo "::error::dispatch was refused. The token needs Actions: write on"
+            echo "::error::hmbseaotter/voice-agent-eval-harness; a token that can read the"
+            echo "::error::repository but not run a workflow fails exactly here."
+            exit 1
+          fi
