@@ -46,7 +46,7 @@ def seen_pairs(comparisons: Iterable[Comparison]) -> set[frozenset[str]]:
 def _ordered(left: str, right: str) -> tuple[str, str]:
     """Present the pair in a stable order.
 
-    Which side a finding appears on is arbitrary, and randomising it would make
+    Which side a finding appears on is arbitrary, and randomizing it would make
     the same state produce different screens. Sorting by id keeps a resumed
     session identical to an uninterrupted one.
     """

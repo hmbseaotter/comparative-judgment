@@ -36,7 +36,7 @@
 
 > **Refined by D9.** This entry originally read "there is a default store location, it is gitignored" while a requirement elsewhere said invoking with no path must fail by name — a contradiction. D9 resolves it: no implicit fallback exists, but the location the documentation uses is gitignored.
 
-**Why** — A general-purpose severity tool will eventually be pointed at real production findings by someone, and a default that quietly wants committing is a trap laid for that person. (B) suits this project specifically — shared anchors travelling with the repo is exactly what the source design's bootstrap argues for — but it optimizes for the author at a stranger's expense. (C) was rejected because the source design explicitly frames this as "a clean standalone open-source artifact in its own right", and the decision to separate it from the harness was made partly so it could stand alone.
+**Why** — A general-purpose severity tool will eventually be pointed at real production findings by someone, and a default that quietly wants committing is a trap laid for that person. (B) suits this project specifically — shared anchors traveling with the repo is exactly what the source design's bootstrap argues for — but it optimizes for the author at a stranger's expense. (C) was rejected because the source design explicitly frames this as "a clean standalone open-source artifact in its own right", and the decision to separate it from the harness was made partly so it could stand alone.
 
 **Consequences / caveats** — The author's own anchor set for the harness's **design set** can still be committed deliberately, since those findings are synthetic *and* public. The README must state that findings text may be sensitive.
 
@@ -56,7 +56,7 @@
 
 **Decision ✅** — **(B).**
 
-**Why** — The sort cannot deliver what the design calls its most valuable output, and the reason is structural rather than incidental: **a comparison sort's efficiency *is* its transitivity assumption.** For 50 findings it makes ~237 comparisons out of 1,225 possible pairs — about 19% — and it skips precisely the third leg of any potential cycle, because that is the comparison transitivity lets it avoid. Worse, given an intransitive rater it still returns a confident total order, one that would differ under a different comparison order, with nothing signalling that anything went wrong.
+**Why** — The sort cannot deliver what the design calls its most valuable output, and the reason is structural rather than incidental: **a comparison sort's efficiency *is* its transitivity assumption.** For 50 findings it makes ~237 comparisons out of 1,225 possible pairs — about 19% — and it skips precisely the third leg of any potential cycle, because that is the comparison transitivity lets it avoid. Worse, given an intransitive rater it still returns a confident total order, one that would differ under a different comparison order, with nothing signaling that anything went wrong.
 
 Bradley-Terry assumes no total order. It fits each item a scale value with a standard error from whatever pairwise outcomes exist, and inconsistency surfaces as poor fit, wide standard errors and per-item misfit — a graded map of where the scale is soft, which is strictly richer than a binary cycle flag. It is also what the source design's own instruction to "treat the literature as a starting point" actually points at; the sort was the deviation.
 
@@ -64,7 +64,7 @@ Human effort is comparable: at ~10 appearances per item, 50 findings costs ~250 
 
 (A) was the initial recommendation and was withdrawn on examination. Its claim that a later Bradley-Terry fit would need "nothing re-asked" was **wrong**: the format migrates cleanly but the comparison *distribution* does not. Band-targeted placement produces a sparse, structurally biased graph — items connected only to cut-adjacent anchors and never to each other — on which a fit yields huge standard errors and possibly non-identifiable estimates. Migration would need roughly 7 more comparisons per item: at 1,000 findings, ~7,000 additional human judgments, paid in the scarce resource. (C) is the right end state but front-loads adaptive selection, the part least felt at ~70 findings.
 
-**Consequences / caveats** — Bradley-Terry's core is small (MM iteration plus standard errors from the Fisher information), so "power tool" overstates it; the expensive part is adaptive selection, which is separable and deferred. The fit is iterative, so reproducibility must be engineered deliberately — fixed tolerance, fixed iteration cap, deterministic ordering and tie-breaking. Scale values are *derived*, so a refit can move a band; bands are frozen at assignment and a refit produces a proposed revision for review rather than silently relabelling something the consuming harness already cites.
+**Consequences / caveats** — Bradley-Terry's core is small (MM iteration plus standard errors from the Fisher information), so "power tool" overstates it; the expensive part is adaptive selection, which is separable and deferred. The fit is iterative, so reproducibility must be engineered deliberately — fixed tolerance, fixed iteration cap, deterministic ordering and tie-breaking. Scale values are *derived*, so a refit can move a band; bands are frozen at assignment and a refit produces a proposed revision for review rather than silently relabeling something the consuming harness already cites.
 
 ---
 
@@ -92,12 +92,12 @@ Human effort is comparable: at ~10 appearances per item, 50 findings costs ~250 
 
 **Options considered**
 - **(A) Record rater identity from day one; multi-rater analysis deferred.**
-- **(B) Full multi-rater support now** — per-rater scales, inter-rater agreement, disagreement localisation.
+- **(B) Full multi-rater support now** — per-rater scales, inter-rater agreement, disagreement localization.
 - **(C) Single rater, no rater field.**
 
 **Decision ✅** — **(A).**
 
-**Why** — The field costs essentially nothing, and its absence is unfixable: retrofitting it later leaves every already-recorded comparison unattributable. (C) also forecloses a stated goal — the source methodology treats reviewer disagreement as a primary source of insight rather than noise, because disagreement localises exactly where a scale is underspecified. No disagreement rate is quoted here: a figure from one reviewer pair on one corpus in one session cannot be generalised, and the argument rests on what disagreement *tells you*, not on how often it happened to occur. (B) builds analysis machinery before a second rater exists.
+**Why** — The field costs essentially nothing, and its absence is unfixable: retrofitting it later leaves every already-recorded comparison unattributable. (C) also forecloses a stated goal — the source methodology treats reviewer disagreement as a primary source of insight rather than noise, because disagreement localizes exactly where a scale is underspecified. No disagreement rate is quoted here: a figure from one reviewer pair on one corpus in one session cannot be generalized, and the argument rests on what disagreement *tells you*, not on how often it happened to occur. (B) builds analysis machinery before a second rater exists.
 
 **Consequences / caveats** — Same shape as D2: pay the cheap structural cost now, defer the machinery. Multi-rater analysis lands in phase 3, over data that already supports it.
 
@@ -121,7 +121,7 @@ Severity ownership went to a separate file because the tool must never mutate a 
 
 **Consequences / caveats** — ~~This settles a gap in the consuming harness's specification, which names no format for its findings document; that spec needs amending to match.~~ **Discharged.** The harness settled the same format as its own D22 and pushed it; both specifications now name YAML. A Markdown table view can be generated from the YAML for readability without becoming the source of truth.
 
-> **Stale until 2026-08-28.** The struck sentence is the **fourth** member of the class D15 was built to close — a claim about another repository that stopped being true when that repository moved. D15's own reasoning names three instances and cites this exact sentence as the third; the 0.4.0 repair fixed its twin in the assumptions block and missed this copy. It survived because the scanner is pointed at the two *specs* and never at the two decision records, and it was found by a later audit widening that universe by one file per side. The generalisable part is not the sentence: it is that **the detector's coverage was narrower than the rule it enforces**, which is the same shape D24 records elsewhere in this document. The scanner now takes a path list.
+> **Stale until 2026-08-28.** The struck sentence is the **fourth** member of the class D15 was built to close — a claim about another repository that stopped being true when that repository moved. D15's own reasoning names three instances and cites this exact sentence as the third; the 0.4.0 repair fixed its twin in the assumptions block and missed this copy. It survived because the scanner is pointed at the two *specs* and never at the two decision records, and it was found by a later audit widening that universe by one file per side. The generalizable part is not the sentence: it is that **the detector's coverage was narrower than the rule it enforces**, which is the same shape D24 records elsewhere in this document. The scanner now takes a path list.
 
 ---
 
@@ -339,7 +339,7 @@ So the old cap failed on cleanliness, not on noise. (C) would mean the tool refu
 
 **Decision ✅** — **(A).** Phase 1 asserts the triad is accepted rather than rejected and leaves the items indistinguishable; phase 2 asserts it raises their misfit.
 
-**Why** — A criterion that cannot pass is worse than a missing one: it reads later as an unexplained failure rather than as a deliberate phase boundary, and the reader has no way to tell which. (C) would discard the assertion that matters most about intransitivity — that the tool *localises* it — which is the whole reason the model was chosen over a sort. (B) relies on someone remembering the exception at exactly the moment the criteria list is being read by someone who was not here.
+**Why** — A criterion that cannot pass is worse than a missing one: it reads later as an unexplained failure rather than as a deliberate phase boundary, and the reader has no way to tell which. (C) would discard the assertion that matters most about intransitivity — that the tool *localizes* it — which is the whole reason the model was chosen over a sort. (B) relies on someone remembering the exception at exactly the moment the criteria list is being read by someone who was not here.
 
 The general point is worth keeping: **when a decision moves work between phases, the acceptance criteria tagged to those phases move with it.** D14 moved the capability and left its criterion behind, which no linter can see — phase tags were internally consistent throughout, and the criterion was well-formed. Only running the criteria found it.
 
@@ -543,6 +543,10 @@ A stray retraction is inert to the fit, which filters by a set. It is not inert 
 
 ## D27 — US spelling, so two repositories sharing an interface do not disagree about orthography
 
+> **Superseded in part by D29 (2026-09-07).** The Rule below named a word list, and that list
+> was exactly as wide as the sweep that built it. D29 replaces it with a set of shapes plus
+> declared exceptions. The decision to convert stands unchanged; only what holds it does.
+
 **Fork:** This repository was written in one variety throughout, and the consuming harness converted to US at `745d1a6`. An independent audit filed the difference as *"a cross-repository choice to make deliberately, not a defect"* — this repository being internally consistent, which is what a style rule strictly requires. Convert, or record the difference and keep it?
 
 **Options considered**
@@ -585,6 +589,29 @@ A stray retraction is inert to the fit, which filters by a set. It is not inert 
 
 ---
 
+## D29 — A word list is only as wide as the sweep that built it
+
+**Fork:** D27's guard was a list of the spellings one sweep had found. Working the audit's remaining items turned up an `-isation` form in the specification, an `-lling` form in a decision record, and eight more of the same shapes — every one of them in a file that sweep had already read, and every one invisible to the guard written from it. Widen the list, or stop keeping one?
+
+**Options considered**
+- **(A) Match the shapes** — the productive suffixes — with declared exceptions for the ordinary words that share them.
+- **(B) Add the ten and keep the list**, which is the repair the finding literally asks for.
+- **(C) Drop the guard**, and treat spelling as a reviewer's job, as the harness does.
+
+**Decision ✅** — **(A).**
+
+**Why** — (B) repairs the instance and leaves the mechanism, which is the shape this project keeps finding: a check whose coverage is set by whoever last looked rather than by the rule it enforces. The eleventh word would have gone the same way as the first ten. (C) is what the harness does, and is why the harness's own conversion is held by nothing at all.
+
+The cost of (A) is a list of exceptions in place of a list of targets, and that trade is the decision. A bare `-ise` is what catches an infinitive; it is also the ending of a good deal of ordinary English, so the guard now declares that a handful of everyday words are not differences. **The exception list fails in the safe direction, which the list it replaces did not**: a missing exception is a build failure somebody resolves in a minute, while a missing target was silence.
+
+**Consequences / caveats** — three defects were found in the pattern before it passed, and each is a way this kind of guard goes wrong. Unanchored, it found the `-our` shape inside `resource`. Anchored, it could no longer see inside identifiers — which is what the unanchored form had been for — so identifiers are now split on `_` and on camel humps before matching, rather than the anchors being given up. And the bare `-our` ending missed the adjectival form, because the suffix is not always word-final.
+
+**The forms live in one function, which is this repository meeting an old problem for the third time.** A checker that reads text cannot spell out what it forbids: every form is written only inside `_other_variety`, the scan skips exactly that function by locating it with `ast`, and the exemption is asserted to conceal exactly the pairs the function has to name — bounded by what it hides rather than by how many lines it spans, since line count is not what makes an exemption dangerous.
+
+**Rule** — `tests/test_constraints.py::test_no_other_variety_spelling_returns`, unchanged in name from D27. `test_the_spelling_guard_finds_a_planted_word` plants three of the shapes the list-based version missed, composed at runtime rather than written out, so a future word of the same shape is caught without anybody adding it anywhere.
+
+---
+
 ## Not checked — as of 0.6.0 @ D26
 
 *Refreshed after an independent audit of 0.5.0 by a session that had written none of this code. Three earlier entries were retired because the audit resolved them: cut inversion has now been observed through the front end rather than only constructed in tests, the uncovered-lines list was measured rather than recalled, and the O(n²) claim was corrected below. **The most useful thing the audit produced was not a finding but a shape:** of forty-one, none was a mistake in the mathematics — the part checked hardest — and the recurring failure was a guard whose coverage was narrower than the rule it enforced, green and blind at the same time.*
@@ -608,8 +635,8 @@ A stray retraction is inert to the fit, which filters by a set. It is not inert 
 
 ## Document status
 
-Decisions **D1–D28** recorded. The most consequential is **D2**, which overturns the source design's central algorithmic choice; **D5** additionally settles a gap in a second project's specification, which must be amended to match.
+Decisions **D1–D29** recorded. The most consequential is **D2**, which overturns the source design's central algorithmic choice; **D5** additionally settles a gap in a second project's specification, which must be amended to match.
 
 Spec: `specs/comparative-judgment.md`. Build prompt: `specs/comparative-judgment.build-prompt.md` (phase 1, frozen).
 
-Any new fork encountered during the build is appended here in the same shape, and from **D9** onward each entry ends with a `**Rule**` line naming what enforces it. Numbering continues from **D29**. Both figures, and the gaplessness of the sequence between them, are asserted by `tests/test_constraints.py::test_the_decision_record_states_its_own_high_water_mark` — so this section is the maintained copy rather than a remembered one, and the header no longer keeps a second.
+Any new fork encountered during the build is appended here in the same shape, and from **D9** onward each entry ends with a `**Rule**` line naming what enforces it. Numbering continues from **D30**. Both figures, and the gaplessness of the sequence between them, are asserted by `tests/test_constraints.py::test_the_decision_record_states_its_own_high_water_mark` — so this section is the maintained copy rather than a remembered one, and the header no longer keeps a second.

@@ -133,26 +133,150 @@ def _imports(path: Path) -> set[str]:
 def _other_variety(american: str) -> str:
     """The other variety's spelling of one of the words above.
 
-    Three substitutions cover every word this repository converted, and they
-    are applied rather than listed for the reason the declaration gives: a
-    literal table of the forms being forbidden would be found by the check that
-    reads this file.
+    Every form this module forbids is written out here and nowhere else, for
+    the reason the declaration gives: a literal table beside the pattern would
+    be found by the check that reads this file. `_constructor_lines` locates
+    this function so the scan can skip exactly it.
     """
-    if american == "license":
-        return "licence"
+    irregular = {
+        "license": "licence",
+        "defense": "defence",
+        "center": "centre",
+        "catalog": "catalogue",
+        "judgment": "judgement",
+        "analyze": "analyse",
+        "analyzed": "analysed",
+        "analyzing": "analysing",
+    }
+    if american in irregular:
+        return irregular[american]
     if american.startswith("behavior"):
         return "behaviour" + american[len("behavior") :]
     return american.replace("iz", "is")
 
 
-#: Matched as substrings rather than on word boundaries, deliberately. `_` is a
-#: word character, so a boundary match cannot see inside an identifier -- and
-#: three identifiers are exactly what the conversion had to rename by hand. A
-#: guard blind to the case its own change needed a human for would be narrower
-#: than the rule it enforces.
-_OTHER_VARIETY = re.compile(
-    "|".join(sorted(_other_variety(word) for word in US_SPELLINGS)), re.IGNORECASE
+#: The US forms whose pairs no substitution reaches, so the pattern has to name
+#: them. Kept as US spellings; `_other_variety` is where they become the other
+#: form, and it is the one function this module's own scan skips.
+IRREGULAR = (
+    "license",
+    "defense",
+    "center",
+    "catalog",
+    "judgment",
+    "analyze",
+    "analyzed",
+    "analyzing",
 )
+
+#: The *shapes* of the variety this repository does not use, rather than a list
+#: of its words. D29 records why: the first version of this guard listed what a
+#: sweep had found, which made it exactly as wide as that sweep -- and the sweep
+#: had missed ten forms sitting in the files it had just read.
+#:
+#: Anchored on word boundaries. Unanchored, the `-our` shape is found inside
+#: ordinary words such as `resource`, which is how the first attempt failed.
+#: Identifiers are handled by splitting them before matching instead -- see
+#: `_flagged`. `-wise` is excluded by the pattern rather than by a list, since
+#: there is no other variety of `pairwise` and such a list grows with every
+#: compound anybody writes.
+_OTHER_VARIETY = re.compile(
+    r"\b(?:"
+    r"[a-z]{3,}(?:isation|isations|ised|ises|ising|iser|isers|isable|(?<!w)ise)"
+    r"|[a-z]{3,}(?:our|ours|oured|ouring|oural|ourally|ourer|ourers"
+    r"|ourite|ourites|ourful|ourless)"
+    r"|(?:travel|signal|label|relabel|cancel|marvel|counsel|fuel|dial)(?:led|ling|ler)"
+    r"|" + "|".join(_other_variety(word) for word in IRREGULAR) + r")\b",
+    re.IGNORECASE,
+)
+
+#: Words the pattern catches that are spelled the same in both varieties. Every
+#: entry is here because a dictionary agrees it is not a difference -- `advised`
+#: is not the other variety of anything -- and never because converting one was
+#: inconvenient. An exemption nobody has to justify is one that grows.
+#:
+#: Most of these are the price of the bare `-ise`, which is what catches an
+#: infinitive. That ending is also ordinary English, and paying for it in
+#: declared exceptions is the trade: a pattern narrow enough to need no list
+#: would miss the words this guard exists for.
+#:
+#: `analyses` is absent from the pattern rather than listed here, because it is
+#: both a verb form and the plural of `analysis` and no single entry could be
+#: right for both readings.
+_SAME_IN_BOTH = frozenset(
+    {
+        "advise",
+        "advised",
+        "advises",
+        "advising",
+        "appraised",
+        "chastise",
+        "comprise",
+        "comprised",
+        "compromise",
+        "compromised",
+        "concise",
+        "demise",
+        "despise",
+        "despised",
+        "devise",
+        "devised",
+        "disguise",
+        "disguised",
+        "enterprise",
+        "excise",
+        "exercise",
+        "exercised",
+        "exercises",
+        "exercising",
+        "expertise",
+        "franchise",
+        "franchised",
+        "imprecise",
+        "improvise",
+        "improvised",
+        "incise",
+        "merchandise",
+        "paradise",
+        "praised",
+        "precise",
+        "premise",
+        "promise",
+        "promised",
+        "promises",
+        "promising",
+        "raised",
+        "raises",
+        "raising",
+        "revise",
+        "revised",
+        "revises",
+        "revising",
+        "supervise",
+        "supervised",
+        "surprise",
+        "surprised",
+        "surprises",
+        "surprising",
+        "televise",
+        "treatise",
+        "unexercised",
+        "unraised",
+    }
+)
+
+#: Splits an identifier into the words a boundary-anchored pattern can see. `_`
+#: is a word character and a camel hump is not a boundary, so a snake_case name
+#: whose first component carries the suffix, and a CamelCase class name whose
+#: second word does, are both invisible without this. Those are exactly the two
+#: shapes the conversion had to rename by hand.
+_IDENTIFIER_SEAM = re.compile(r"(?<=[a-z])(?=[A-Z])")
+
+
+def _flagged(text: str) -> list[str]:
+    """The forms in `text` belonging to the variety this repository dropped."""
+    split = _IDENTIFIER_SEAM.sub(" ", text).replace("_", " ")
+    return [word for word in _OTHER_VARIETY.findall(split) if word.lower() not in _SAME_IN_BOTH]
 
 
 def _constructor_lines() -> range:
@@ -555,12 +679,14 @@ class TestDocumentation:
                 if number in exempt:
                     continue
                 offenders += [
-                    f"{path.relative_to(REPO_ROOT)}:{number}: {word}"
-                    for word in _OTHER_VARIETY.findall(line)
+                    f"{path.relative_to(REPO_ROOT)}:{number}: {word}" for word in _flagged(line)
                 ]
         assert not offenders, (
-            "this repository converted to US spelling at D27, and these did not:\n  "
-            + "\n  ".join(offenders)
+            "this repository converted to US spelling at D27, and these did not. Convert "
+            "each -- or, where a word is spelled the same in both varieties and the "
+            "pattern has merely caught its shape, add it to _SAME_IN_BOTH, which is a "
+            "list of things a dictionary agrees about and not a list of things that were "
+            "inconvenient:\n  " + "\n  ".join(offenders)
         )
 
     def test_the_spelling_guard_finds_a_planted_word(self) -> None:
@@ -576,26 +702,40 @@ class TestDocumentation:
         """
         for american in US_SPELLINGS:
             planted = _other_variety(american)
-            assert _OTHER_VARIETY.findall(planted), f"the guard does not find {american}'s pair"
+            assert _flagged(planted), f"the guard does not find {american}'s pair"
 
-        assert not _OTHER_VARIETY.findall("analysis realistic optimistic"), (
+        assert not _flagged("analysis realistic optimistic pairwise imprecise"), (
             "the guard flags words spelled the same in both varieties, which is the "
-            "false positive the word list was built to avoid"
+            "false positive this pattern most needs to avoid"
+        )
+        assert not _flagged("advised revised exercising promised surprising"), (
+            "the allowlist is not applied, so every -ised word in ordinary prose is "
+            "reported as a spelling to convert"
         )
 
-        assert _OTHER_VARIETY.findall(_other_variety("regularized") + "_wins"), (
+        # D29: the shapes the first, list-based version of this guard missed.
+        # Planted by shape rather than by name, so a future word of the same
+        # shape is caught without anybody adding it anywhere.
+        for shape in ("local" + "isation", "signal" + "ling", "general" + "ised"):
+            assert _flagged(shape), (
+                f"{shape!r} is the shape D29 was written about and the guard misses it, "
+                "so the pattern has been narrowed back into a list"
+            )
+
+        assert _flagged(_other_variety("regularized") + "_wins"), (
             "the guard cannot see inside an identifier, so it is blind to exactly the "
             "case the conversion had to rename by hand"
         )
 
         lines = Path(__file__).read_text(encoding="utf-8").splitlines()
         span = _constructor_lines()
-        concealed = _OTHER_VARIETY.findall("\n".join(lines[span.start - 1 : span.stop - 1]))
-        assert len(concealed) == 2, (
-            f"the exemption conceals {len(concealed)} spellings rather than the two the "
-            "constructor has to write out. Bounding what it hides rather than how many "
-            "lines it spans is the point: an exemption nobody has to justify is one "
-            "that grows, and line count is not what makes it dangerous."
+        concealed = _flagged("\n".join(lines[span.start - 1 : span.stop - 1]))
+        assert len(concealed) == len(IRREGULAR) + 1, (
+            f"the exemption conceals {len(concealed)} spellings rather than the "
+            f"{len(IRREGULAR)} irregular pairs plus the one built by rule. Bounding what "
+            "it hides rather than how many lines it spans is the point: an exemption "
+            "nobody has to justify is one that grows, and line count is not what makes "
+            "one dangerous."
         )
 
     def test_the_decision_record_states_its_own_high_water_mark(self) -> None:

@@ -2,7 +2,7 @@
 
 Severity leaves this tool in its **own** file, keyed by finding id — never
 written back into the findings document. Two reasons, and the second is the one
-that generalises: the tool must not mutate a document it does not own (it may not
+that generalizes: the tool must not mutate a document it does not own (it may not
 even have write access to it), and keeping severity separate makes its provenance
 explicit. A value in this file names the run, the anchor set and the comparison
 log it came from; the same value pasted into a column names nothing.

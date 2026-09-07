@@ -36,7 +36,7 @@ A rater assigns defensible severity to a set of findings by answering only *"whi
 - [P2] **Diagnostics report** — per-item standard error, misfit statistics, tie rate, and the regions of the scale they identify as soft.
 - [P2] **Cross-corpus anchor import/export**, with a connectivity report naming under-bridged components.
 - [P3] **Adaptive pair selection** and a confidence-based stopping rule.
-- [P3] **Multi-rater analysis** — per-rater scales, inter-rater agreement, and localisation of the pairs raters disagree on.
+- [P3] **Multi-rater analysis** — per-rater scales, inter-rater agreement, and localization of the pairs raters disagree on.
 - [P4] **Web UI adapter** over the unchanged session API.
 
 ## out of scope (v1)
@@ -248,7 +248,7 @@ Persistent by design — the comparison log *is* the product, and the ordering i
 
 ### phase 3 — efficiency and multiple raters
 - Goal: the properties that matter at 1,000 findings and with more than one rater.
-- Includes: adaptive pair selection, confidence-based stopping rule, per-rater scales, inter-rater agreement and disagreement localisation.
+- Includes: adaptive pair selection, confidence-based stopping rule, per-rater scales, inter-rater agreement and disagreement localization.
 - Done when: adaptive selection measurably reduces comparisons per finding against the phase-1 heuristic on the same batch.
 
 ### phase 4 — web adapter
@@ -279,7 +279,7 @@ Persistent by design — the comparison log *is* the product, and the ordering i
 
 **Settled at the post-build sweep (D17–D18).** A changed finding is refused rather than silently reinterpreted or automatically forked, and accepting is audited in the same append-only log — so an acceptance changes the log hash, and a severity file naming that hash is tied to a history that includes it (D18).
 
-**Settled after an independent audit of 0.5.0 (D19–D26).** The sequence number is re-read at every append rather than cached, because a cached counter desynchronises the moment a second handle appends and a retraction then withdraws every record sharing that number (D19). Creating a store refuses to overwrite one, since the three band cuts are the only absolute judgments the tool asks for and were being destroyed by a command that exited zero (D20). Connectivity is enforced rather than merely reported: `bands` and `export` refuse across components never compared (D21). A judged finding removed from the document is refused exactly as a changed one is, with its own acceptance flag so the more consequential acceptance is not reachable by habit (D22). The run id is derived from the log hash, the anchor set and the cuts, so it identifies the *result* and needs no exclusion carved out of the byte-identity guarantee (D23). The session seam covers the whole tool rather than only the comparison loop, and the scan enforcing it is derived from the package layout rather than listed — the previous scan was green because its universe excluded the file that broke the rule (D24). The most severe cut requires a calibration note, because a pairwise ordering can be internally perfect while the whole set sits a band too high (D25). Every operation validates before it writes, and every parse boundary raises a named refusal (D26).
+**Settled after an independent audit of 0.5.0 (D19–D26).** The sequence number is re-read at every append rather than cached, because a cached counter desynchronizes the moment a second handle appends and a retraction then withdraws every record sharing that number (D19). Creating a store refuses to overwrite one, since the three band cuts are the only absolute judgments the tool asks for and were being destroyed by a command that exited zero (D20). Connectivity is enforced rather than merely reported: `bands` and `export` refuse across components never compared (D21). A judged finding removed from the document is refused exactly as a changed one is, with its own acceptance flag so the more consequential acceptance is not reachable by habit (D22). The run id is derived from the log hash, the anchor set and the cuts, so it identifies the *result* and needs no exclusion carved out of the byte-identity guarantee (D23). The session seam covers the whole tool rather than only the comparison loop, and the scan enforcing it is derived from the package layout rather than listed — the previous scan was green because its universe excluded the file that broke the rule (D24). The most severe cut requires a calibration note, because a pairwise ordering can be internally perfect while the whole set sits a band too high (D25). Every operation validates before it writes, and every parse boundary raises a named refusal (D26).
 
 ---
 

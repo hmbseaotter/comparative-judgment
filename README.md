@@ -125,7 +125,7 @@ That asymmetry is why comparative judgment reliably outperforms absolute rubric 
 inter-rater reliability in educational assessment, and it is the property this tool is built on.
 
 No disagreement rate is quoted anywhere in this project, deliberately. A figure from one reviewer
-pair on one corpus in one session cannot be generalised, and quoting it invites a question that a
+pair on one corpus in one session cannot be generalized, and quoting it invites a question that a
 single observation cannot answer.
 
 ## Your findings text may be sensitive

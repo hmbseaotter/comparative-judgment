@@ -328,7 +328,7 @@ class Store:
     def _next_seq(self) -> int:
         """One past the last sequence number on disk, re-read at every append.
 
-        Deliberately *not* cached. A cached counter desynchronises the moment a
+        Deliberately *not* cached. A cached counter desynchronizes the moment a
         second handle appends — two records then share a number, and since a
         retraction addresses a comparison by seq, retracting one withdraws every
         record carrying that number. That is silent corruption of the artefact

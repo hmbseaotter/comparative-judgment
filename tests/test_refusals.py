@@ -272,7 +272,7 @@ class TestUnplacedItemsAreReported:
 
 class TestSequenceNumbersAreUnique:
     def test_two_handles_on_one_store_do_not_collide(self, tmp_path: Path) -> None:
-        """A cached counter desynchronises the moment a second handle appends.
+        """A cached counter desynchronizes the moment a second handle appends.
 
         Reachable without concurrency being anyone's plan: a `cj compare` left
         open in one terminal while `cj load --accept-revisions` runs in another.
