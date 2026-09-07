@@ -271,6 +271,14 @@ Severity ownership went to a separate file because the tool must never mutate a 
 
 ## D14 — Phase 1 re-cut to the size the sequencing decision assumed
 
+> **The Rule below named an enforcer that does not exist (noted 2026-09-07).** It cited
+> *"the spec linter's phase-tag agreement check"*; this repository has no linter and no
+> `tools/` directory, so nothing enforced the placement and the specification drifted in
+> **seven** places — three carrying `[P1]`, two in the phase-1 scope list, and two stating
+> the guarantee without any tag at all. An audit found four of them by reading.
+> `tests/test_constraints.py::test_no_phase_one_line_promises_a_feature_d14_deferred` is now
+> the check that Rule described. The decision itself is untouched.
+
 **Fork:** The consuming harness's D13 put this tool's build *in series ahead of its own*, justified on the MVP being small — "present two findings, record which is worse, persist, emit a total order, then three band cuts." What got specified is materially larger. Accept the delay, shrink phase 1, or unwind the serial order?
 
 **Options considered**

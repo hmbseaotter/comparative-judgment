@@ -13,12 +13,12 @@
 - Artifacts land in: the `comparative-judgment` repository root
 - Visibility: public (currently private, flipped when ready). The store path is always supplied by the caller — there is no implicit fallback — but the conventional location used by the documentation and examples is gitignored, so following the docs cannot cause an accidental commit. A general-purpose severity tool will be pointed at real production findings by someone, and a committing default is a trap.
 - Decision record: `specs/comparative-judgment.decisions.md`
-- Reproducibility: required, byte-identical — the same comparison log SHALL produce the same scale values, standard errors and bands. This does not happen by accident: Bradley-Terry fitting is iterative, so it needs a fixed convergence tolerance, a fixed iteration cap, a deterministic item ordering, and deterministic tie-breaking.
+- Reproducibility: required, byte-identical — the same comparison log SHALL produce the same scale values and bands, and the same standard errors once phase 2 computes them (D14 deferred those, and their reproducibility is asserted at `[P2]`). This does not happen by accident: Bradley-Terry fitting is iterative, so it needs a fixed convergence tolerance, a fixed iteration cap, a deterministic item ordering, and deterministic tie-breaking.
 - Timestamp standard: UTC ISO-8601 with `Z` suffix, second precision.
 - Integrity: the comparison log is append-only (a retraction is a record, never a deletion). Every finding carries a content hash, so a load that would reinterpret judged text is refused until a human accepts it, and the acceptance is itself a record in the same log (D18); a judged finding *removed* from the document is refused the same way (D22). Every emitted severity file names the run id, the anchor-set version and the hash of the log it was computed from, so any result can be recomputed from the inputs it names. The run id is *derived* from those inputs rather than minted per export (D23), so it identifies the result and two exports over an unchanged history are byte-identical including it.
 
 ## outcome
-A rater assigns defensible severity to a set of findings by answering only *"which of these two is worse?"* — never by choosing a number on a scale. Measurable as: every finding in a batch receives a band; the number of **absolute** judgments required is exactly three (the band cuts) regardless of batch size; placing a finding against an established anchor set costs ~3 comparisons rather than ~log₂(n); re-running the fit over an unchanged comparison log reproduces identical scale values, standard errors and bands byte for byte; and the tool reports, per finding, a standard error and a misfit statistic locating where the rater's scale is soft.
+A rater assigns defensible severity to a set of findings by answering only *"which of these two is worse?"* — never by choosing a number on a scale. Measurable as: every finding in a batch receives a band; the number of **absolute** judgments required is exactly three (the band cuts) regardless of batch size; placing a finding against an established anchor set costs ~3 comparisons rather than ~log₂(n); re-running the fit over an unchanged comparison log reproduces identical scale values and bands byte for byte; and, from phase 2, the tool reports per finding a standard error and a misfit statistic locating where the rater's scale is soft — the half of this outcome D14 deferred, which the phase tags carried and this sentence did not.
 
 ## in scope
 - [P1] **Core data model** — findings (stable id + content hash), comparisons (both item ids, winner or tie, rater id, session id, UTC timestamp), anchors, band cuts.
@@ -66,7 +66,7 @@ Persistent by design — the comparison log *is* the product, and the ordering i
 - **Deterministic (plain code, NO LLM):** every single operation. Pair selection, the Bradley-Terry fit, standard errors, misfit statistics, band placement, cut calibration, tie handling, connectivity analysis, content hashing, log persistence, rendering data, file I/O.
 - **Requires judgment (LLM):** **nothing.** This is a permanent architectural property, not a phase-one simplification. The tool exists to make *human* severity judgment reliable, and its output is the ground truth against which an LLM judge is later measured. Putting a model inside it would make the measuring instrument depend on the thing being measured — and the governing rule is that every layer of judging must bottom out in something deterministic or human, never in another unvalidated model.
 - **Type & value discipline:** `mypy --strict` across the package; frozen dataclasses for every record type; `typing.Final` for constants; tuples for fixed collections. "type-check passes" is an acceptance criterion.
-- **Cost guardrails:** the scarce resource is human comparisons, not tokens. The tool SHALL report comparisons spent and estimated comparisons remaining, so a rater can decide when to stop rather than discovering the cost afterwards.
+- **Cost guardrails:** the scarce resource is human comparisons, not tokens. The tool SHALL report comparisons spent, so a rater sees the cost as it accrues rather than discovering it afterwards; the *estimate* of comparisons remaining, which is what lets a rater decide when to stop, is phase 2 (D14).
 
 ## constraints
 - Stack: Python 3.12+, `uv` with a committed `uv.lock` pinning exact versions, `pytest`, `mypy --strict`, `ruff`, `textual` for the TUI, `PyYAML`, `numpy` for the fit.
@@ -120,7 +120,8 @@ Persistent by design — the comparison log *is* the product, and the ordering i
 - WHEN [P2] anchors are imported from another store, the system SHALL report how many comparisons bridge the imported set to the existing one.
 
 ### state-driven (WHILE — true for the duration of a state)
-- WHILE [P1] a comparison session is running, the system SHALL display comparisons spent and an estimate of comparisons remaining.
+- WHILE [P1] a comparison session is running, the system SHALL display comparisons spent.
+- WHILE [P2] a comparison session is running, the system SHALL additionally display an estimate of comparisons remaining (D14).
 - WHILE [P1] placing a finding against established cuts, the system SHALL select pairs by proximity to a cut rather than by position in a full ordering.
 - WHILE [P1] no cuts have been established, the system SHALL select pairs so as to produce a total order over the current batch, targeting a configured number of appearances per item (default 10) and reporting each item's progress against it.
 - WHILE [P2] reporting diagnostics, the system SHALL emit per-item standard errors, misfit statistics and the tie rate.
@@ -153,7 +154,7 @@ Persistent by design — the comparison log *is* the product, and the ordering i
 - Security: the system SHALL make no network request, and SHALL write only beneath paths supplied by the caller. [P1]
 - Privacy: the repository SHALL gitignore the conventional store location used by its documentation and examples, and the README SHALL state that findings text may be sensitive. [P1]
 - Performance: a fit over 1,000 findings and 10,000 comparisons SHALL complete in under five seconds on a developer machine. [P1]
-- Error handling / observability: the system SHALL report comparisons spent, estimated remaining, and elapsed session time, so a rater can judge fatigue against progress. [P1]
+- Error handling / observability: the system SHALL report comparisons spent and each item's progress against its target. [P1] The estimate of comparisons remaining and the elapsed session time — which are what let a rater judge fatigue against progress — are phase 2, because D14 moved both. [P2]
 - Reproducibility: two fits over the same log SHALL be byte-identical, excluding a run-metadata envelope holding exactly the run id and timestamps. [P1]
 
 ## failure & escalation
@@ -236,14 +237,14 @@ Persistent by design — the comparison log *is* the product, and the ordering i
 
 ### phase 1 — scoring end to end
 - Goal: a rater can cold-start a batch, set cuts, place findings, and emit severities — resumably, reproducibly, with no LLM anywhere.
-- Includes (required floor): core data model and append-only comparison log; Bradley-Terry fit with deterministic convergence and standard errors; the session API seam; band cuts, calibration and placement; YAML reader and severity writer; repo hygiene floor with the store gitignored from the first commit.
-- Includes (chosen optional): the full TUI with undo, tie, progress and session timer — undo specifically, because a misfired key in a 250-comparison session otherwise becomes a silently wrong datum in the log everything downstream derives from; resumable sessions, since the bootstrap is expected to span sittings; and simple heuristic pairing, which is what makes the ~10-appearances estimate plausible rather than optimistic.
+- Includes (required floor): core data model and append-only comparison log; Bradley-Terry fit with deterministic convergence; the session API seam; band cuts, calibration and placement; YAML reader and severity writer; repo hygiene floor with the store gitignored from the first commit.
+- Includes (chosen optional): the full TUI with undo, tie and progress — undo specifically, because a misfired key in a 250-comparison session otherwise becomes a silently wrong datum in the log everything downstream derives from; resumable sessions, since the bootstrap is expected to span sittings; and simple heuristic pairing, which is what makes the ~10-appearances estimate plausible rather than optimistic.
 - ~~Deferred by choice: the connectivity check moves to phase 2.~~ **Retracted (D21).** It was in fact built in phase 1 — `core/graph.py` exists and `cj status` warned from the start — but only `status` asked, so `fit`, `bands` and `export` reported and wrote values across components never compared against each other. The `[P1]` tag the requirement always carried was the correct one; the deferral note was wrong when written and stale thereafter.
 - Done when: its tagged acceptance criteria pass, and a 50-finding bootstrap completes with exactly three absolute judgments.
 
 ### phase 2 — diagnostics and portability
 - Goal: the tool becomes a rubric-improvement instrument rather than only a scoring aid.
-- Includes: per-item misfit and standard-error reporting, tie-rate reporting, soft-region identification, anchor import/export, connectivity reporting.
+- Includes: per-item misfit and standard-error reporting, tie-rate reporting, soft-region identification, anchor import/export, connectivity reporting; and the two D14 moved here alongside the standard errors — the session timer and the comparisons-remaining estimate — which its acceptance criterion named while this list did not.
 - Done when: an intransitive triad is visible as elevated misfit, and an anchor set moves between stores with its bridging count reported.
 
 ### phase 3 — efficiency and multiple raters

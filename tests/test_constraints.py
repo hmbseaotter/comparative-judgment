@@ -304,6 +304,67 @@ def _repository_text_files() -> list[Path]:
     )
 
 
+#: What D14 moved out of phase 1, and the phrases the documents use to name it.
+#: A line naming one of these has to say where the thing lives: carry a later
+#: phase tag, sit inside a later phase's section, or write "phase 2". Anything
+#: else is a phase-1 document promising a phase-2 feature.
+_DEFERRED_BY_D14 = (
+    "standard error",
+    "session timer",
+    "comparisons remaining",
+    "estimated remaining",
+    "elapsed session time",
+)
+
+#: Lines that name a deferred feature without making any claim about when it
+#: arrives, keyed on a distinctive excerpt. Rewording one is exactly the edit
+#: that should force it to be re-judged, so a key that survived rewording would
+#: be the wrong key. Each entry says why it is not a phase claim -- an exemption
+#: nobody has to justify is one that grows.
+_NOT_A_PHASE_CLAIM: dict[str, str] = {
+    "Deterministic (plain code, NO LLM)": (
+        "An enumeration of what is computed without a model, across every phase. It says "
+        "nothing about when each arrives, and naming phases in it would make a determinism "
+        "guarantee read as a schedule."
+    ),
+    "the Bradley-Terry core is small": (
+        "A sizing argument for choosing the model over a comparison sort. That the core is "
+        "small including its standard errors is true whenever they are built."
+    ),
+}
+
+
+def _phase_promises(text: str) -> list[str]:
+    """Lines promising a D14-deferred feature without saying it is deferred.
+
+    D14's Rule named "the spec linter's phase-tag agreement check" as its
+    enforcement. This repository has no linter and no `tools/` directory, so
+    that Rule named something that does not exist -- which is why the audit
+    found four such lines by reading, and why working them turned up three more.
+
+    Takes the text rather than reading it, so the control can run this over a
+    document it has mutated.
+    """
+    problems: list[str] = []
+    phase = 1
+    for number, line in enumerate(text.splitlines(), 1):
+        heading = re.match(r"### phase (\d)", line)
+        if heading:
+            phase = int(heading.group(1))
+        if phase > 1:
+            continue
+        lowered = line.lower()
+        named = [phrase for phrase in _DEFERRED_BY_D14 if phrase in lowered]
+        if not named:
+            continue
+        if any(tag in line for tag in ("[P2]", "[P3]", "[P4]")) or "phase 2" in lowered:
+            continue
+        if any(key in line for key in _NOT_A_PHASE_CLAIM):
+            continue
+        problems.append(f"line {number} promises {named[0]!r} with no later phase named")
+    return problems
+
+
 def _decision_bookkeeping(text: str) -> list[str]:
     """What is wrong with the decision record's numbering and its stated totals.
 
@@ -737,6 +798,57 @@ class TestDocumentation:
             "nobody has to justify is one that grows, and line count is not what makes "
             "one dangerous."
         )
+
+    def test_no_phase_one_line_promises_a_feature_d14_deferred(self) -> None:
+        """C-3, and the check D14's Rule said existed.
+
+        D14 moved per-item standard errors, the session timer and the
+        comparisons-remaining estimate to phase 2, and its own Consequences say
+        the phase tags carry that and "the prose should not contradict". The
+        prose contradicted it in seven places, three of them carrying `[P1]`
+        and two of them in the phase-1 scope list itself.
+
+        The rule this enforces is deliberately not "do not mention them". It is
+        *say where they live*: a line naming one must carry a later phase tag,
+        sit in a later phase's section, or write "phase 2". A document may
+        discuss a deferred feature all it likes as long as a reader cannot
+        finish the sentence believing it is here.
+        """
+        spec = (REPO_ROOT / "specs" / "comparative-judgment.md").read_text(encoding="utf-8")
+        problems = _phase_promises(spec)
+        assert not problems, (
+            "the specification promises in phase 1 what D14 moved to phase 2:\n  "
+            + "\n  ".join(problems)
+        )
+
+    def test_the_phase_promise_check_finds_a_planted_line(self) -> None:
+        """The control, and both halves of the rule are planted.
+
+        A line naming a deferred feature with no phase must be caught, and the
+        three ways of naming the phase must each be accepted -- otherwise the
+        check would pass by rejecting nothing or by rejecting everything, and
+        the difference is invisible from a green suite.
+
+        The exemption table is checked too. An entry for a line that no longer
+        exists is an exemption nobody has to justify, which is how such a table
+        stops meaning anything.
+        """
+        planted = "- WHILE [P1] a session is running, it SHALL show comparisons remaining.\n"
+        assert _phase_promises(planted), "a bare phase-1 promise is not caught"
+
+        for excused in (
+            "- WHILE [P2] a session is running, it SHALL show comparisons remaining.\n",
+            "- The estimate of comparisons remaining is phase 2 work.\n",
+            "### phase 2 - diagnostics\n- Includes: per-item standard errors.\n",
+        ):
+            assert not _phase_promises(excused), f"a line naming its phase is rejected: {excused!r}"
+
+        spec = (REPO_ROOT / "specs" / "comparative-judgment.md").read_text(encoding="utf-8")
+        for key in _NOT_A_PHASE_CLAIM:
+            assert key in spec, (
+                f"{key!r} is exempted from the phase check and is not in the specification, "
+                "so the exemption covers nothing and should be removed"
+            )
 
     def test_the_decision_record_states_its_own_high_water_mark(self) -> None:
         """The count of decisions, computed rather than maintained.
