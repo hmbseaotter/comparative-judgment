@@ -100,18 +100,18 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "numpy", specifier = ">=2.0" },
-    { name = "pyyaml", specifier = ">=6.0" },
-    { name = "textual", specifier = ">=0.80" },
+    { name = "numpy", specifier = "==2.5.2" },
+    { name = "pyyaml", specifier = "==6.0.3" },
+    { name = "textual", specifier = "==8.2.8" },
 ]
 
 [package.metadata.requires-dev]
 dev = [
-    { name = "mypy", specifier = ">=1.11" },
-    { name = "pytest", specifier = ">=8.0" },
-    { name = "pytest-cov", specifier = ">=5.0" },
-    { name = "ruff", specifier = ">=0.6" },
-    { name = "types-pyyaml", specifier = ">=6.0" },
+    { name = "mypy", specifier = "==2.3.1" },
+    { name = "pytest", specifier = "==9.1.1" },
+    { name = "pytest-cov", specifier = "==7.1.0" },
+    { name = "ruff", specifier = "==0.16.5" },
+    { name = "types-pyyaml", specifier = "==6.0.12.20260815" },
 ]
 
 [[package]]

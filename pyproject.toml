@@ -12,9 +12,9 @@ authors = [{ name = "Saso Gale" }]
 # against, so a model inside it would make the measuring instrument depend on the
 # thing being measured. A test asserts the lockfile stays free of one.
 dependencies = [
-    "numpy>=2.0",
-    "pyyaml>=6.0",
-    "textual>=0.80",
+    "numpy==2.5.2",
+    "pyyaml==6.0.3",
+    "textual==8.2.8",
 ]
 
 [project.scripts]
@@ -22,15 +22,15 @@ cj = "comparative_judgment.cli:main"
 
 [dependency-groups]
 dev = [
-    "mypy>=1.11",
-    "pytest>=8.0",
-    "ruff>=0.6",
+    "mypy==2.3.1",
+    "pytest==9.1.1",
+    "ruff==0.16.5",
     # Type stubs for an already-declared runtime dependency. Not a new
     # capability: mypy --strict is a specified gate and cannot check a
     # dependency it has no types for.
-    "types-PyYAML>=6.0",
+    "types-PyYAML==6.0.12.20260815",
     # Measures whether the tests reach the code, rather than trusting that they do.
-    "pytest-cov>=5.0",
+    "pytest-cov==7.1.0",
 ]
 
 [build-system]
@@ -79,4 +79,21 @@ select = [
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# Coverage is deliberately NOT in addopts. It would apply the floor below to
+# every `-k` subset a developer runs, which fails for the one reason a floor
+# should never fail: not enough of the suite ran. CI passes --cov, and a test
+# asserts that it does, so the floor is enforced where the whole suite runs.
 addopts = "-q --strict-markers"
+
+[tool.coverage.run]
+source = ["src/comparative_judgment"]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = true
+# Measured at 98% when this floor was set: 24 uncovered lines of 1166, nine of
+# them in the CLI and ten in a terminal UI no human has yet run. The floor sits
+# below that on purpose. A gate set at the current figure fails on the next
+# unrelated change and then gets lowered by whoever is inconvenienced, which is
+# a ratchet running the wrong way; two points is about 23 lines of room.
+fail_under = 96

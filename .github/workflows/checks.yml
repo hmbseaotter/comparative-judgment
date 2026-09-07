@@ -46,7 +46,11 @@ jobs:
         run: uv sync --frozen --python ${{ matrix.python-version }}
 
       - name: Tests
-        run: uv run --frozen pytest -q
+        # --cov because the floor lives in pyproject.toml and coverage is opt-in:
+        # pytest without it never loads the plugin, and fail_under becomes
+        # configuration nobody runs. Same shape as the type check this workflow
+        # already got wrong once, which declared a scope it did not enforce.
+        run: uv run --frozen pytest -q --cov=comparative_judgment
 
       - name: Types
         # As configured in pyproject.toml, which declares files = ["src", "tests"].

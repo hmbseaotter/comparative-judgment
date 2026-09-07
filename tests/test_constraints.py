@@ -424,6 +424,78 @@ class TestRepositoryHygiene:
         assert ".cj-store" in readme
         assert "no implicit store path" in readme.lower()
 
+    def test_no_dependency_is_expressed_only_as_a_floor(self) -> None:
+        """C-8. The lockfile pinned and the declaration did not.
+
+        A floor in the declaration is a claim that any later version will do,
+        in a tool whose output is the ground truth another project measures
+        against. The lockfile made the installed set exact and the declaration
+        said something weaker, so the two documents disagreed about the same
+        question and only one of them was checked.
+
+        Dev dependencies are included, not only runtime ones. `ruff`, `mypy`
+        and `pytest` decide whether a build passes, so a floor there is a gate
+        whose behavior can change without anything in this repository changing.
+        """
+        config = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+        declared: list[str] = list(config["project"]["dependencies"])
+        for group in config.get("dependency-groups", {}).values():
+            declared.extend(str(item) for item in group)
+
+        assert declared, "no dependencies declared at all"
+        unpinned = [
+            requirement
+            for requirement in declared
+            if "==" not in requirement or ">" in requirement or "<" in requirement
+        ]
+        assert not unpinned, f"expressed as a floor or a range rather than a pin: {unpinned}"
+
+    def test_ci_runs_the_coverage_gate_the_configuration_declares(self) -> None:
+        """C-10. A floor nothing invokes is a number in a file.
+
+        `fail_under` lives in pyproject so that one place holds it, but coverage
+        is opt-in: pytest without `--cov` never loads the plugin, and the floor
+        is then configuration that never runs. That is exactly the shape this
+        repository has already been caught by once -- a type check whose
+        declared scope and enforced scope were different, and only the narrower
+        one ever ran.
+
+        So this asserts the two ends meet: the floor is configured here, and the
+        workflow asks for the measurement that applies it.
+        """
+        config = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+        floor = config["tool"]["coverage"]["report"]["fail_under"]
+        assert isinstance(floor, int) and floor >= 90, (
+            f"the coverage floor is {floor!r}, which is not a gate worth having"
+        )
+
+        workflow = (REPO_ROOT / ".github" / "workflows" / "checks.yml").read_text(encoding="utf-8")
+        assert "--cov=comparative_judgment" in workflow, (
+            "the workflow's test step does not ask for coverage, so fail_under is "
+            "configuration nothing applies"
+        )
+
+    def test_the_pin_guard_rejects_a_floor(self) -> None:
+        """The control, because a repository that is already pinned proves nothing.
+
+        Both shapes are planted: a bare floor, and the subtler one -- a pin with
+        a range bolted on, which contains `==` and would satisfy a check that
+        only looked for that.
+        """
+
+        def unpinned(declared: list[str]) -> list[str]:
+            return [
+                requirement
+                for requirement in declared
+                if "==" not in requirement or ">" in requirement or "<" in requirement
+            ]
+
+        assert unpinned(["numpy>=2.0"]) == ["numpy>=2.0"]
+        assert unpinned(["numpy==2.5.2,<3"]) == ["numpy==2.5.2,<3"], (
+            "a pin with a range attached passes a check that only looks for =="
+        )
+        assert unpinned(["numpy==2.5.2"]) == []
+
     def test_lockfile_pins_exact_versions(self) -> None:
         """Pins, not floors -- the defect this project inherited as a lesson.
 
