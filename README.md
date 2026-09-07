@@ -165,6 +165,56 @@ Two details worth knowing before you read numbers out of it:
   no absolute origin, so a stored threshold means something only relative to the fit that produced
   it.
 
+## What this tool depends on, and what depends on it
+
+This tool stands alone: nothing in `src/` imports another project, and the whole comparison loop
+runs against a findings file and a store. The coupling is at the edges, and it runs both ways.
+
+| | |
+|---|---|
+| [`voice-agent-eval-harness`](https://github.com/hmbseaotter/voice-agent-eval-harness) **reads this tool's output** | it joins the severity file onto its findings by `id`. Six of the eight keys in a findings entry cross that boundary; `call_ref` and `owner` are the harness's own and this tool never sees them |
+| **this tool reads nothing of the harness at runtime** | but the two specifications describe one interface, and they can drift apart without either build noticing |
+
+`tools/check_spec_interface.py` compares the two specifications field by field — and it lives in the
+harness, so it runs when *that* repository builds. A change made here would sit unchecked until then.
+So a push to `main` here that touches `specs/` asks the harness to run it now (D31), which is what
+`HARNESS_DISPATCH_TOKEN` is for.
+
+## The token this repository needs
+
+`HARNESS_DISPATCH_TOKEN` is the only secret here.
+
+| secret | grants | on | so that |
+|---|---|---|---|
+| `HARNESS_DISPATCH_TOKEN` | `Actions: Read and write` | `voice-agent-eval-harness` | a spec change here can start the harness's workflow, which runs the interface scanner |
+
+`Actions: Read and write` is the narrowest grant that can start a workflow — GitHub offers no
+write-only option for it, and read alone cannot dispatch.
+
+**Making one.** GitHub → your avatar → **Settings** → **Developer settings** → **Personal access
+tokens** → **Fine-grained tokens** → **Generate new token**, or go straight to
+<https://github.com/settings/personal-access-tokens/new>.
+
+| field | value |
+|---|---|
+| Resource owner | `hmbseaotter` |
+| Repository access | **Only select repositories** → `voice-agent-eval-harness` |
+| Permissions | **Repository permissions** → `Actions: Read and write`, and nothing else |
+| Expiration | your choice — **write the date down** |
+
+Copy it on the page that follows; GitHub will not show it again. Then install it here: this
+repository → **Settings** → **Secrets and variables** → **Actions** → **New repository secret**,
+named exactly `HARNESS_DISPATCH_TOKEN`.
+
+**On the day it expires**, a spec change here stops asking the harness to check the interface, and
+the two specifications can drift with both builds green. The dispatch step fails loudly and names the
+permission needed, so the lapse shows up as a red build rather than as silence — which is the whole
+reason it fails instead of warning.
+
+**Three repositories share three tokens, and the map of which grants what lives in the harness's
+README**, under *Access: three fine-grained tokens*. It is there rather than here because the harness
+is the hub: it is the only one of the three that talks to both others.
+
 ## License
 
 Apache-2.0 — see [LICENSE](LICENSE).

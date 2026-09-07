@@ -387,6 +387,47 @@ def _phase_promises(text: str) -> list[str]:
     return problems
 
 
+#: What documenting a secret means here, beyond naming it once. A name in prose
+#: is not documentation: when a build breaks the reader needs to know what the
+#: token grants and whether it has simply expired, and at setup they need to
+#: know where to make one. Each marker answers one of those, and the guard fails
+#: naming which is missing rather than saying "undocumented".
+_SECRET_REFERENCE = re.compile(r"secrets\.([A-Z][A-Z0-9_]{2,})")
+_GRANT = re.compile(r"\b(?:Contents|Actions|Metadata|Workflows):")
+_TOKEN_CREATION_URL = "settings/personal-access-tokens"
+
+
+def _undocumented_secrets(workflow: str, readme: str) -> list[str]:
+    """What a workflow reads that its README does not explain.
+
+    Takes both texts rather than reading them, so the control can run this over
+    a workflow it has written. A control that restates the arithmetic in its own
+    assertion proves the arithmetic rather than the check.
+    """
+    problems: list[str] = []
+    names = sorted(
+        name for name in set(_SECRET_REFERENCE.findall(workflow)) if name != "GITHUB_TOKEN"
+    )
+    if not names:
+        return ["the workflow reads no secret at all, so this check compared nothing"]
+
+    for name in names:
+        mentions = [line for line in readme.splitlines() if name in line]
+        if not mentions:
+            problems.append(f"{name}: the README never names it")
+        elif not any(_GRANT.search(line) for line in mentions):
+            problems.append(f"{name}: named, but never on a line stating what it grants")
+
+    if "expire" not in readme.lower():
+        problems.append(
+            "no expiry warning anywhere: a fine-grained token stops working on a date nobody "
+            "is watching for, and that is the failure this documentation exists for"
+        )
+    if _TOKEN_CREATION_URL not in readme:
+        problems.append("no pointer to where a replacement token is created")
+    return problems
+
+
 def _decision_bookkeeping(text: str) -> list[str]:
     """What is wrong with the decision record's numbering and its stated totals.
 
@@ -978,6 +1019,70 @@ class TestDocumentation:
                 f"{why}, so a spec change here can break the shared findings interface "
                 "and nothing will say so until the harness next builds"
             )
+
+    def test_every_secret_the_workflow_reads_is_documented(self) -> None:
+        """A secret is the one thing a reader cannot recover from the code.
+
+        Everything else about this repository is discoverable by reading it. A
+        token is not: it lives in repository settings, it grants something the
+        workflow never states, and it stops working on a date nothing
+        announces. So the README carries what the code cannot -- what it
+        grants, that it expires, and where a replacement is made.
+
+        This asserts documentation, not correctness. Whether the token
+        installed today actually carries the permission the README claims is
+        knowable only by running CI, and is not claimed here.
+        """
+        workflow = (REPO_ROOT / ".github" / "workflows" / "checks.yml").read_text(encoding="utf-8")
+        readme = (REPO_ROOT / "README.md").read_text(encoding="utf-8")
+        problems = _undocumented_secrets(workflow, readme)
+        assert not problems, (
+            "the workflow reads secrets the README does not explain:\n  " + "\n  ".join(problems)
+        )
+
+    def test_the_secret_documentation_guard_finds_an_undocumented_secret(self) -> None:
+        """The control, because a repository already documented proves nothing.
+
+        Four plants, one per thing the guard claims to check: a secret absent
+        from the README, one named without its grant, a README with no expiry
+        warning, and one with nowhere to make a replacement. A guard that
+        checked only the name would pass three of the four.
+
+        `GITHUB_TOKEN` is planted in the other direction: the runner supplies
+        it, so requiring documentation for it would be a demand nobody can meet.
+        """
+        good = (
+            "| `A_TOKEN` | here | `Contents: Read-only` on x |\n"
+            "It expires; see https://github.com/settings/personal-access-tokens/new\n"
+        )
+        assert not _undocumented_secrets("uses: ${{ secrets.A_TOKEN }}", good)
+
+        absent = _undocumented_secrets("${{ secrets.B_TOKEN }}", good)
+        assert any("never names it" in p for p in absent), absent
+
+        no_grant = _undocumented_secrets(
+            "${{ secrets.A_TOKEN }}",
+            "A_TOKEN is needed. It expires. settings/personal-access-tokens",
+        )
+        assert any("what it grants" in p for p in no_grant), no_grant
+
+        no_expiry = _undocumented_secrets(
+            "${{ secrets.A_TOKEN }}",
+            "| `A_TOKEN` | `Contents: Read-only` |\nsettings/personal-access-tokens",
+        )
+        assert any("expiry warning" in p for p in no_expiry), no_expiry
+
+        no_route = _undocumented_secrets(
+            "${{ secrets.A_TOKEN }}", "| `A_TOKEN` | `Contents: Read-only` | It expires. |"
+        )
+        assert any("replacement token is created" in p for p in no_route), no_route
+
+        assert not _undocumented_secrets(
+            "${{ secrets.A_TOKEN }} ${{ secrets.GITHUB_TOKEN }}", good
+        ), (
+            "GITHUB_TOKEN is supplied by the runner, so demanding documentation for "
+            "it would be a demand nobody can meet"
+        )
 
     def test_the_decision_record_states_its_own_high_water_mark(self) -> None:
         """The count of decisions, computed rather than maintained.
