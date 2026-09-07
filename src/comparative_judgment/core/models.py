@@ -324,6 +324,14 @@ class Progress:
     appearance_target: int
     complete: bool
     items_below_target: tuple[str, ...] = field(default_factory=tuple)
+    #: Named once cuts exist: non-anchor findings still short of the placement
+    #: quota, which is what finishing means in that mode. `items_below_target`
+    #: keeps its own meaning and stays populated -- "below the appearance
+    #: target" is still a true statement about a freshly placed item, it is
+    #: simply not the criterion any more. Two fields rather than one that
+    #: changes meaning, because a field whose meaning depends on another field
+    #: is read wrongly by whoever forgets to check the other one.
+    items_unplaced: tuple[str, ...] = field(default_factory=tuple)
     #: True once cuts exist: the loop is placing items against boundaries rather
     #: than working every item toward the appearance target, so "every item at N
     #: appearances" is not what finishing means any more.

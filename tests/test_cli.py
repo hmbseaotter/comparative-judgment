@@ -290,6 +290,80 @@ class TestFullFlow:
         assert "comparisons/item" in out
         assert "excluded questions  1" in out
 
+    def test_status_reports_a_finished_placement_as_complete(
+        self, workspace: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """C-4 at the surface the audit measured it at.
+
+        The TUI compensated for this by reading `placing` and `cj status` did
+        not, so the spec's acceptance line -- that after cuts exist the
+        appearance target is not reported as the finishing condition -- was met
+        in one front end and not the other. The test that named the defect
+        asserted the TUI widget's text, which is how it stayed green while the
+        CLI printed `complete no` for a finished placement.
+
+        `--target 5` is deliberate. The bug is only visible where the appearance
+        target exceeds the placement quota of three; at `--target 3` the two
+        criteria agree and the check would pass either way.
+        """
+        from comparative_judgment.core.findings import parse_findings
+        from comparative_judgment.core.models import Outcome
+        from comparative_judgment.core.session import Session
+        from comparative_judgment.core.store import Store
+
+        ranked = self._bootstrap(workspace)
+        store = _store(workspace)
+        assert (
+            main(
+                [
+                    "cuts",
+                    "--store",
+                    store,
+                    "--target",
+                    "3",
+                    "--critical-high",
+                    f"{ranked[0]}:{ranked[1]}",
+                    "--high-medium",
+                    f"{ranked[1]}:{ranked[2]}",
+                    "--medium-low",
+                    f"{ranked[2]}:{ranked[3]}",
+                    "--critical-high-note",
+                    NOTE,
+                ]
+            )
+            == 0
+        )
+
+        session = Session(Store.open(workspace / ".cj-store"), rater_id="r", appearance_target=5)
+        existing = list(session._store.findings())
+        newcomer = parse_findings(
+            "findings:\n"
+            "  - id: F-NEW\n"
+            "    observation: A newly reviewed call had the same problem.\n"
+            "    evidence: ['line 7: fragment']\n"
+            "    consequence: The caller is out of pocket.\n"
+            "    detectable_by: judge\n"
+            "    tier: defect"
+        ).admitted
+        session._store.put_findings([*existing, *newcomer])
+        session._invalidate()
+        while session.next_pair() is not None:
+            session.record(Outcome.RIGHT)
+
+        capsys.readouterr()
+        assert main(["status", "--store", store, "--target", "5"]) == 0
+        out = capsys.readouterr().out
+
+        assert "mode                placing against cuts" in out
+        assert "complete            yes" in out, (
+            f"a finished placement is reported as unfinished:\n{out}"
+        )
+        assert "below target" not in out, (
+            "the appearance target is reported as the finishing condition after cuts "
+            f"exist, which is the acceptance line this violates:\n{out}"
+        )
+        assert "unplaced" not in out
+
     def test_status_warns_about_disconnected_components(
         self, workspace: Path, capsys: pytest.CaptureFixture[str]
     ) -> None:

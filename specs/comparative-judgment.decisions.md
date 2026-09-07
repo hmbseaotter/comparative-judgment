@@ -562,6 +562,29 @@ A stray retraction is inert to the fit, which filters by a set. It is not inert 
 
 ---
 
+## D28 — Finishing means something different once cuts exist, and that is a second field rather than one that changes meaning
+
+**Fork:** `Progress.complete` was computed from the appearance target in every mode. Once cuts exist the loop places a newcomer in about three comparisons and stops, so a fully placed item — `next_pair()` returning `None`, the item banded — was reported as an unfinished batch. The TUI compensated by reading `placing`; `cj status` did not, and printed `complete no` beside a name it had already placed. How should the seam say what finishing means?
+
+**Options considered**
+- **(A) A second field**, `items_unplaced`, naming the placement shortfall, with `items_below_target` keeping the meaning its name states.
+- **(B) Make `items_below_target` mode-aware**, so it names whatever the current mode is short of.
+- **(C) Repair `complete` only**, and leave both front ends to interpret the lists.
+
+**Decision ✅** — **(A).**
+
+**Why** — (B) gives a field a meaning that depends on another field, and a field read without checking the other one is read wrongly. Its name would also be false half the time, since a freshly placed newcomer genuinely *is* below the appearance target — that statement is true and simply not the criterion. (C) is what the audit asked for and it is not enough: `cj status` would stop saying `complete no` and go on printing `below target F-NEW` for an item it had just finished placing, which is the same wrong yardstick one line further down.
+
+`_unplaced` is deliberately the same predicate `_placement_pair` selects on, so that "nothing left to judge" and "complete" cannot disagree. They disagreed because they were computed from different things.
+
+**Consequences / caveats** — `cj status` gains a `mode` line, because a reader cannot otherwise tell which of the two criteria is in force, and they are not interchangeable. `Progress` gains a field rather than changing one, so nothing reading `items_below_target` today reads something different tomorrow.
+
+**The acceptance criterion for this was ticked against a neighbor.** `test_finishing_placement_is_not_reported_as_an_appearance_target` asserts the *TUI widget's text* and never reads `Progress.complete`, so the spec's line — that after cuts exist the appearance target is not reported as the finishing condition — was satisfied in one front end while the seam and the CLI both still had the defect. That is the shape D26's closing note calls the audit's most useful finding, arriving one front end over.
+
+**Rule** — `tests/test_session.py::test_a_finished_placement_reports_complete` and `tests/test_cli.py::test_status_reports_a_finished_placement_as_complete`, with `tests/test_session.py::test_an_unfinished_placement_is_not_reported_as_complete` as the control. All three were planted and observed to fire: restoring the old criterion fails the first two, and `complete=True` fails the third.
+
+---
+
 ## Not checked — as of 0.6.0 @ D26
 
 *Refreshed after an independent audit of 0.5.0 by a session that had written none of this code. Three earlier entries were retired because the audit resolved them: cut inversion has now been observed through the front end rather than only constructed in tests, the uncovered-lines list was measured rather than recalled, and the O(n²) claim was corrected below. **The most useful thing the audit produced was not a finding but a shape:** of forty-one, none was a mistake in the mathematics — the part checked hardest — and the recurring failure was a guard whose coverage was narrower than the rule it enforced, green and blind at the same time.*
@@ -585,8 +608,8 @@ A stray retraction is inert to the fit, which filters by a set. It is not inert 
 
 ## Document status
 
-Decisions **D1–D27** recorded. The most consequential is **D2**, which overturns the source design's central algorithmic choice; **D5** additionally settles a gap in a second project's specification, which must be amended to match.
+Decisions **D1–D28** recorded. The most consequential is **D2**, which overturns the source design's central algorithmic choice; **D5** additionally settles a gap in a second project's specification, which must be amended to match.
 
 Spec: `specs/comparative-judgment.md`. Build prompt: `specs/comparative-judgment.build-prompt.md` (phase 1, frozen).
 
-Any new fork encountered during the build is appended here in the same shape, and from **D9** onward each entry ends with a `**Rule**` line naming what enforces it. Numbering continues from **D28**. Both figures, and the gaplessness of the sequence between them, are asserted by `tests/test_constraints.py::test_the_decision_record_states_its_own_high_water_mark` — so this section is the maintained copy rather than a remembered one, and the header no longer keeps a second.
+Any new fork encountered during the build is appended here in the same shape, and from **D9** onward each entry ends with a `**Rule**` line naming what enforces it. Numbering continues from **D29**. Both figures, and the gaplessness of the sequence between them, are asserted by `tests/test_constraints.py::test_the_decision_record_states_its_own_high_water_mark` — so this section is the maintained copy rather than a remembered one, and the header no longer keeps a second.

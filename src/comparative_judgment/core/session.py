@@ -302,7 +302,9 @@ class Session:
         cuts = self._store.cuts()
         appearances = [e.appearances for e in estimates]
         below = tuple(sorted(e.finding_id for e in estimates if e.appearances < self._target))
+        unplaced = self._unplaced(estimates, cuts)
         blocked = self._blocked_reason(estimates, cuts)
+        placing = bool(cuts)
         return Progress(
             admitted=len(estimates),
             excluded_questions=self._store.excluded_question_count(),
@@ -311,10 +313,40 @@ class Session:
             min_appearances=min(appearances) if appearances else 0,
             mean_appearances=(sum(appearances) / len(appearances)) if appearances else 0.0,
             appearance_target=self._target,
-            complete=not below and not blocked,
+            complete=not blocked and not (unplaced if placing else below),
             items_below_target=below,
-            placing=bool(cuts),
+            items_unplaced=unplaced,
+            placing=placing,
             blocked_reason=blocked,
+        )
+
+    def _unplaced(self, estimates: tuple[Estimate, ...], cuts: tuple[Cut, ...]) -> tuple[str, ...]:
+        """Non-anchor findings still short of the placement quota.
+
+        Empty before cuts exist, because placement is not what the loop is doing
+        yet -- which is why `progress()` can call it unconditionally.
+
+        Deliberately the same predicate `_placement_pair` selects on, so that an
+        item named here is exactly an item that loop would still offer. The two
+        disagreed: `complete` was measured against the *appearance* target long
+        after that target stopped being the finishing condition, so a newcomer
+        placed in its three comparisons -- with `next_pair()` returning `None`
+        and the item banded -- was reported as an unfinished batch. The TUI
+        compensated by reading `placing`; `cj status` did not, and printed
+        `complete no` beside a name it had already placed.
+
+        Anchors are excluded for the reason the placement loop excludes them:
+        they define the boundaries, so they are placed by construction.
+        """
+        if not cuts:
+            return ()
+        anchors = pairing.cut_anchor_ids(cuts)
+        return tuple(
+            sorted(
+                e.finding_id
+                for e in estimates
+                if e.finding_id not in anchors and e.appearances < pairing.PLACEMENT_COMPARISONS
+            )
         )
 
     def _blocked_reason(self, estimates: tuple[Estimate, ...], cuts: tuple[Cut, ...]) -> str:

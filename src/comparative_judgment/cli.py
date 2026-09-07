@@ -149,6 +149,12 @@ def cmd_load(args: argparse.Namespace) -> int:
     return 0
 
 
+def _listed(ids: tuple[str, ...], limit: int = 8) -> str:
+    """Names, truncated, with the remainder counted rather than dropped."""
+    shown = ", ".join(ids[:limit])
+    return shown if len(ids) <= limit else f"{shown} (+{len(ids) - limit} more)"
+
+
 def cmd_status(args: argparse.Namespace) -> int:
     session = _session(args, target=args.target)
     progress = session.progress()
@@ -160,15 +166,13 @@ def cmd_status(args: argparse.Namespace) -> int:
         f"appearances         min {progress.min_appearances}, mean {progress.mean_appearances:.2f}"
     )
     print(f"comparisons/item    {session.mean_comparisons_per_item():.2f}")
+    print(f"mode                {'placing against cuts' if progress.placing else 'bootstrap'}")
     print(f"complete            {'yes' if progress.complete else 'no'}")
-    if progress.items_below_target:
-        shown = ", ".join(progress.items_below_target[:8])
-        more = (
-            ""
-            if len(progress.items_below_target) <= 8
-            else f" (+{len(progress.items_below_target) - 8} more)"
-        )
-        print(f"below target        {shown}{more}")
+    if progress.placing:
+        if progress.items_unplaced:
+            print(f"unplaced            {_listed(progress.items_unplaced)}")
+    elif progress.items_below_target:
+        print(f"below target        {_listed(progress.items_below_target)}")
 
     if progress.blocked_reason:
         print()

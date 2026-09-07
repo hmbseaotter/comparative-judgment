@@ -300,6 +300,21 @@ class TestPlacementMode:
         )
         return session
 
+    def _add_newcomer(self, session: Session, finding_id: str = "F-NEW") -> None:
+        """Put one unjudged finding into a store that already has cuts."""
+        existing = list(session._store.findings())
+        newcomer = parse_findings(
+            "findings:\n"
+            f"  - id: {finding_id}\n"
+            "    observation: A newly reviewed call had the same problem.\n"
+            "    evidence: ['line 7: fragment']\n"
+            "    consequence: The caller is out of pocket.\n"
+            "    detectable_by: judge\n"
+            "    tier: defect"
+        ).admitted
+        session._store.put_findings([*existing, *newcomer])
+        session._invalidate()
+
     def test_a_bootstrapped_batch_needs_no_further_comparisons(self, tmp_path: Path) -> None:
         session = self._bootstrapped(tmp_path)
         assert session.next_pair() is None
@@ -329,6 +344,56 @@ class TestPlacementMode:
 
         assert spent <= 4, f"placement should cost about three comparisons, took {spent}"
         assert session.progress().comparisons_spent == before + spent
+
+    def test_a_finished_placement_reports_complete(self, tmp_path: Path) -> None:
+        """C-4. `complete` was measured against the target placement replaced.
+
+        Once cuts exist the loop places a newcomer in about three comparisons
+        and stops, so the appearance target is no longer what finishing means.
+        It was still what `complete` was computed from -- so a newcomer that
+        `next_pair()` had nothing left to offer for, and that `bands` had
+        already placed, was reported as an unfinished batch.
+
+        The last assertion is the one that makes this a test of the *mode*
+        rather than of an empty list: the appearance-target figure is still
+        true and still populated. What changed is which of the two the
+        finishing condition reads.
+        """
+        session = self._bootstrapped(tmp_path)
+        self._add_newcomer(session)
+        while session.next_pair() is not None:
+            session.record(Outcome.RIGHT)
+
+        progress = session.progress()
+        assert progress.placing
+        assert progress.items_unplaced == ()
+        assert progress.complete, "nothing is left to judge, so this is not an unfinished batch"
+        assert "F-NEW" in progress.items_below_target, (
+            "the appearance-target figure should still name the placed item; if it does "
+            "not, this test passes because the two criteria agree rather than because "
+            "the right one is being read"
+        )
+
+    def test_an_unfinished_placement_is_not_reported_as_complete(self, tmp_path: Path) -> None:
+        """The control, because `complete = True` would satisfy the test above.
+
+        A newcomer short of the placement quota must be named and must keep the
+        batch incomplete. Without this, the repair could have replaced a check
+        that was wrong in one direction with one wrong in the other, and the
+        suite would not have noticed.
+        """
+        session = self._bootstrapped(tmp_path)
+        self._add_newcomer(session)
+        session.record(Outcome.RIGHT)
+
+        progress = session.progress()
+        assert progress.placing
+        assert progress.items_unplaced == ("F-NEW",)
+        assert not progress.complete, "a newcomer short of its quota is not a finished batch"
+        assert session.next_pair() is not None, (
+            "the placement loop and the completion criterion disagree, which is the "
+            "class of defect this pair exists to prevent"
+        )
 
     def test_the_new_finding_receives_a_band(self, tmp_path: Path) -> None:
         session = self._bootstrapped(tmp_path)
