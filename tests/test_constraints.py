@@ -118,6 +118,28 @@ def _locked_packages() -> list[dict[str, object]]:
     return [p for p in packages if isinstance(p, dict)]
 
 
+def _private_reaches(source: str) -> list[str]:
+    """Reads of another object's private attribute, in one module's source.
+
+    `self._x` is excluded: a class using its own internals is not reaching past
+    a seam. Dunders are excluded because `__class__` and friends are protocol,
+    not privacy.
+
+    Takes the source rather than a path, so the control can run this over a
+    module it has written rather than over one that exists.
+    """
+    found: list[str] = []
+    for node in ast.walk(ast.parse(source)):
+        if not isinstance(node, ast.Attribute):
+            continue
+        if not node.attr.startswith("_") or node.attr.startswith("__"):
+            continue
+        if isinstance(node.value, ast.Name) and node.value.id == "self":
+            continue
+        found.append(f"line {node.lineno}: .{node.attr}")
+    return found
+
+
 def _imports(path: Path) -> set[str]:
     """Every module name imported by a file, at any depth."""
     tree = ast.parse(path.read_text(encoding="utf-8"))
@@ -421,6 +443,43 @@ class TestCoreIsUIAgnostic:
             for path in SRC.rglob("*.py")
             if CORE not in path.parents and path.name != "__init__.py"
         )
+
+    def test_no_front_end_reaches_past_the_seam_by_attribute(self) -> None:
+        """The other half of the rule the import scan states (D32).
+
+        `test_front_ends_reach_core_only_through_the_session_interface` reads
+        imports, and `session._store.cuts()` needs no import at all. So a front
+        end could take the store out of the session it was handed, put its
+        contents in a widget, and pass a scan whose docstring says that is
+        exactly what must not happen. A guard narrower than the rule it
+        enforces, which is this repository's most-repeated finding.
+
+        The convention this completes was unstated until D32. Tests reach into
+        `session._store` and `session._fit()` freely and deliberately -- 43
+        times when this was written -- because a test is allowed to know how
+        the thing works. Production code is not, and the difference is the
+        seam.
+        """
+        offenders = [
+            f"{path.relative_to(SRC)} {reach}"
+            for path in self._front_ends()
+            for reach in _private_reaches(path.read_text(encoding="utf-8"))
+        ]
+        assert not offenders, (
+            "a front end reaches past the session seam by attribute, which the "
+            "import scan cannot see:\n  " + "\n  ".join(offenders)
+        )
+
+    def test_the_attribute_seam_check_finds_a_planted_reach(self) -> None:
+        """The control. Every front end passing today proves nothing about it.
+
+        Three plants, one per way the check could be wrong. The reach it exists
+        for must be caught; `self._x` must not be, or every class in the package
+        becomes an offender; and a dunder must not be, or `__class__` does.
+        """
+        assert _private_reaches("cuts = session._store.cuts()\n") == ["line 1: ._store"]
+        assert not _private_reaches("class A:\n    def f(self):\n        return self._x\n")
+        assert not _private_reaches("name = value.__class__.__name__\n")
 
     def test_the_seam_scan_covers_both_front_ends(self) -> None:
         """The scan's universe must contain the CLI, not only the terminal UI."""

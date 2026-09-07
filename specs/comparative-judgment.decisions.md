@@ -670,6 +670,29 @@ It fires only when a push changed something under `specs/`. The scanner reads th
 
 ---
 
+## D32 — Tests may know how it works; front ends may not
+
+**Fork:** The suite reaches into `session._store` and `session._fit()` in 43 places, measured when this was written, and the seam scan covers `src/` only. An audit called that *"fine, but the convention is unstated"* — which is the whole problem. An unstated convention is a habit, and a habit is defended by whoever happens to notice.
+
+**Options considered**
+- **(A) State it, and finish the guard that was already half-enforcing it.**
+- **(B) State it in prose only**, since the existing scan covers production code and that is the half that matters.
+- **(C) Hold tests to the seam as well**, giving them a public way to construct the states they need.
+
+**Decision ✅** — **(A).** Tests may reach past the seam, `src/` may not, and the check saying so now reads attributes as well as imports.
+
+**Why** — (C) is the purist answer and it buys nothing here. A test that built a bootstrapped session through the public API alone would spend most of its length doing so, and the states worth testing are the awkward ones — a store with an inverted cut, a newcomer half-placed. Test code that knows the implementation is coupled to it; that is the cost, it is paid in tests needing an edit when internals move, and it is a cost that announces itself rather than accumulating quietly.
+
+(B) would have left the guard where it was, and where it was is the interesting part. `test_front_ends_reach_core_only_through_the_session_interface` reads **imports**, and `session._store.cuts()` needs no import at all. A front end could take the store out of the session it was handed, put its contents in a widget, and pass a scan whose own docstring says that is precisely what must not happen — a guard narrower than the rule it enforces, which is this repository's most-repeated finding. **Planted and observed:** a reach added to `cli.py` fails the new check and passes the old one.
+
+**Consequences / caveats** — the attribute check excludes `self._x`, because a class using its own internals crosses no seam, and dunders, because `__class__` is protocol rather than privacy. Both exclusions are planted rather than assumed.
+
+The convention makes a promise about *test* churn rather than about production stability: when a core internal moves, tests break. That is intended, and it is the reason this seam is worth having in one direction and not in the other.
+
+**Rule** — `tests/test_constraints.py::test_no_front_end_reaches_past_the_seam_by_attribute`, with `test_the_attribute_seam_check_finds_a_planted_reach` as its control.
+
+---
+
 ## Not checked — as of 0.6.0 @ D26
 
 *Refreshed after an independent audit of 0.5.0 by a session that had written none of this code. Three earlier entries were retired because the audit resolved them: cut inversion has now been observed through the front end rather than only constructed in tests, the uncovered-lines list was measured rather than recalled, and the O(n²) claim was corrected below. **The most useful thing the audit produced was not a finding but a shape:** of forty-one, none was a mistake in the mathematics — the part checked hardest — and the recurring failure was a guard whose coverage was narrower than the rule it enforced, green and blind at the same time.*
@@ -693,8 +716,8 @@ It fires only when a push changed something under `specs/`. The scanner reads th
 
 ## Document status
 
-Decisions **D1–D31** recorded. The most consequential is **D2**, which overturns the source design's central algorithmic choice; **D5** additionally settles a gap in a second project's specification, which must be amended to match.
+Decisions **D1–D32** recorded. The most consequential is **D2**, which overturns the source design's central algorithmic choice; **D5** additionally settles a gap in a second project's specification, which must be amended to match.
 
 Spec: `specs/comparative-judgment.md`. Build prompt: `specs/comparative-judgment.build-prompt.md` (phase 1, frozen).
 
-Any new fork encountered during the build is appended here in the same shape, and from **D9** onward each entry ends with a `**Rule**` line naming what enforces it. Numbering continues from **D32**. Both figures, and the gaplessness of the sequence between them, are asserted by `tests/test_constraints.py::test_the_decision_record_states_its_own_high_water_mark` — so this section is the maintained copy rather than a remembered one, and the header no longer keeps a second.
+Any new fork encountered during the build is appended here in the same shape, and from **D9** onward each entry ends with a `**Rule**` line naming what enforces it. Numbering continues from **D33**. Both figures, and the gaplessness of the sequence between them, are asserted by `tests/test_constraints.py::test_the_decision_record_states_its_own_high_water_mark` — so this section is the maintained copy rather than a remembered one, and the header no longer keeps a second.
