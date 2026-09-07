@@ -63,3 +63,56 @@ jobs:
 
       - name: Format
         run: uv run --frozen ruff format --check
+
+  # C-5 / D15. The interface scanner lives in the harness and runs only in the
+  # harness's CI, so a spec edit here that breaks the shared findings interface
+  # stays green until that repository next builds -- which may be days, and the
+  # build is when both repositories get edited most. D15's Rule called this
+  # "judgment, not checkable until it is wired into a hook". This is the hook.
+  #
+  # Dispatch rather than a checkout of the harness. Running the scanner here
+  # would need read access to a private repository and a copy of its tooling
+  # pinned in this one; asking the harness to run its own scanner needs neither,
+  # and the failure lands beside the other checks that read those two specs.
+  notify-harness:
+    needs: checks
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Two commits, because the step below asks what this push changed.
+          fetch-depth: 2
+
+      - name: Did this push touch a spec?
+        id: specs
+        # The scanner reads the two specifications and nothing else, so a
+        # code-only push would be asking for a run whose answer cannot have
+        # changed. Narrow on purpose: a trigger that fires on everything is one
+        # whose failures stop being read.
+        run: |
+          if git diff --name-only HEAD^ HEAD | grep -q '^specs/'; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Ask the harness to run its interface scanner
+        if: steps.specs.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.HARNESS_DISPATCH_TOKEN }}
+        # HARNESS_DISPATCH_TOKEN needs Actions: write on
+        # hmbseaotter/voice-agent-eval-harness and nothing else. Until it is
+        # created this warns rather than fails, so that a missing secret does
+        # not turn every spec push red -- but it warns loudly, because a
+        # dispatch nobody notices is not wired at all.
+        run: |
+          if [ -z "${GH_TOKEN}" ]; then
+            echo "::warning title=Interface scanner not triggered::HARNESS_DISPATCH_TOKEN"
+            echo "::warning::is not set, so the harness was not asked to re-run its"
+            echo "::warning::interface scanner. This push changed a spec, and that change"
+            echo "::warning::is unchecked against the harness until it next builds."
+            exit 0
+          fi
+          gh workflow run checks.yml \
+            --repo hmbseaotter/voice-agent-eval-harness --ref main

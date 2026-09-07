@@ -645,6 +645,31 @@ The cost of (A) is a list of exceptions in place of a list of targets, and that 
 
 ---
 
+## D31 — The interface check is triggered from the repository that breaks it
+
+**Fork:** D15 built a scanner comparing this specification against the consuming harness's, and put it in the harness, where it runs in the harness's CI. So an edit *here* that breaks the shared findings interface passes here, and goes on passing until that repository happens to build. D15's Rule named the gap and left it: *"judgment, not checkable until it is wired into a hook."* Wire it — and if so, from which side?
+
+**Options considered**
+- **(A) Dispatch** — a push to `main` here asks the harness to run its own workflow.
+- **(B) Check the harness out here** and run `tools/check_spec_interface.py` over both specs, so the failure lands in the build of the repository that caused it.
+- **(C) Leave it**, recording that the wiring was considered and why it was not done.
+
+**Decision ✅** — **(A).**
+
+**Why** — (B) puts the failure where the breaking edit was made, which is the better place for it, and pays for that with a read token for a private repository *plus a copy of another project's tooling pinned in this one*. That second cost disqualifies it: the scanner would then exist in two versions, and the one running here would be the one nobody updates. That is D24's shape and this repository's own recurring finding — a check whose copy has drifted from the rule it was written for.
+
+(A) keeps one scanner. The failure lands in the harness's build rather than in this one, which is worse for whoever pushed; the notification arrives in about a minute instead of in days, which is better for everyone.
+
+(C) was defensible while nothing had been built. It stops being defensible once the trigger is nine lines of YAML.
+
+**Consequences / caveats** — **the dispatch is not armed yet.** It reads `HARNESS_DISPATCH_TOKEN`, which needs `Actions: write` on the harness and nothing else, and which only the owner can create. Until that secret exists the step warns instead of failing, so a missing token does not turn every spec push red. It warns loudly, because a dispatch nobody notices is not wired at all.
+
+It fires only when a push changed something under `specs/`. The scanner reads the two specifications and nothing else, so a code-only push would ask for a run whose answer cannot have changed — and a trigger that fires on everything is a trigger whose failures stop being read.
+
+**Rule** — `tests/test_constraints.py::test_a_spec_push_asks_the_harness_to_check_the_interface`, which asserts the *wiring* and not the run: the job, the repository it names, the token it reads and its narrowing to `specs/` are each something a later edit could quietly drop, and each checkable from here. Whether a dispatch succeeds is not checkable from here, and is not claimed.
+
+---
+
 ## Not checked — as of 0.6.0 @ D26
 
 *Refreshed after an independent audit of 0.5.0 by a session that had written none of this code. Three earlier entries were retired because the audit resolved them: cut inversion has now been observed through the front end rather than only constructed in tests, the uncovered-lines list was measured rather than recalled, and the O(n²) claim was corrected below. **The most useful thing the audit produced was not a finding but a shape:** of forty-one, none was a mistake in the mathematics — the part checked hardest — and the recurring failure was a guard whose coverage was narrower than the rule it enforced, green and blind at the same time.*
@@ -668,8 +693,8 @@ The cost of (A) is a list of exceptions in place of a list of targets, and that 
 
 ## Document status
 
-Decisions **D1–D30** recorded. The most consequential is **D2**, which overturns the source design's central algorithmic choice; **D5** additionally settles a gap in a second project's specification, which must be amended to match.
+Decisions **D1–D31** recorded. The most consequential is **D2**, which overturns the source design's central algorithmic choice; **D5** additionally settles a gap in a second project's specification, which must be amended to match.
 
 Spec: `specs/comparative-judgment.md`. Build prompt: `specs/comparative-judgment.build-prompt.md` (phase 1, frozen).
 
-Any new fork encountered during the build is appended here in the same shape, and from **D9** onward each entry ends with a `**Rule**` line naming what enforces it. Numbering continues from **D31**. Both figures, and the gaplessness of the sequence between them, are asserted by `tests/test_constraints.py::test_the_decision_record_states_its_own_high_water_mark` — so this section is the maintained copy rather than a remembered one, and the header no longer keeps a second.
+Any new fork encountered during the build is appended here in the same shape, and from **D9** onward each entry ends with a `**Rule**` line naming what enforces it. Numbering continues from **D32**. Both figures, and the gaplessness of the sequence between them, are asserted by `tests/test_constraints.py::test_the_decision_record_states_its_own_high_water_mark` — so this section is the maintained copy rather than a remembered one, and the header no longer keeps a second.

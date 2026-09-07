@@ -888,6 +888,33 @@ class TestDocumentation:
             "its criteria entirely"
         )
 
+    def test_a_spec_push_asks_the_harness_to_check_the_interface(self) -> None:
+        """C-5 / D15. The scanner runs there, and the drift starts here.
+
+        `tools/check_spec_interface.py` lives in the consuming harness and runs
+        only in the harness's CI, so an edit to this repository's spec that
+        breaks the shared findings interface is green here and stays green
+        until that repository happens to build. D15 recorded the gap and left
+        it: *"judgment, not checkable until it is wired into a hook"*.
+
+        This asserts the wiring, not the run. Whether the dispatch succeeds
+        depends on a secret this test cannot see, and the workflow warns
+        loudly when it is missing -- but the job, its narrowing to spec
+        changes, and the repository it names are all things a future edit
+        could quietly drop, and those are checkable from here.
+        """
+        workflow = (REPO_ROOT / ".github" / "workflows" / "checks.yml").read_text(encoding="utf-8")
+        for fragment, why in (
+            ("notify-harness:", "the dispatch job is gone"),
+            ("voice-agent-eval-harness", "the dispatch no longer names the harness"),
+            ("HARNESS_DISPATCH_TOKEN", "the dispatch no longer reads its token"),
+            ("^specs/", "the dispatch no longer narrows to spec changes"),
+        ):
+            assert fragment in workflow, (
+                f"{why}, so a spec change here can break the shared findings interface "
+                "and nothing will say so until the harness next builds"
+            )
+
     def test_the_decision_record_states_its_own_high_water_mark(self) -> None:
         """The count of decisions, computed rather than maintained.
 
