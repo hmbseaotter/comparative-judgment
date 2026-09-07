@@ -11,6 +11,7 @@ from __future__ import annotations
 import ast
 import re
 import socket
+import subprocess
 import tomllib
 from collections.abc import Iterable
 from pathlib import Path
@@ -62,9 +63,6 @@ US_SPELLINGS = frozenset(
 #: a house style.
 TEXT_SUFFIXES = frozenset({".py", ".md", ".toml", ".yml", ".yaml"})
 
-_NOT_SOURCE = frozenset(
-    {".venv", ".git", "__pycache__", ".cj-store", ".ruff_cache", ".mypy_cache", ".pytest_cache"}
-)
 SRC = REPO_ROOT / "src" / "comparative_judgment"
 CORE = SRC / "core"
 UI = SRC / "ui"
@@ -319,11 +317,27 @@ def _constructor_lines() -> range:
 
 
 def _repository_text_files() -> list[Path]:
-    return sorted(
-        path
-        for path in REPO_ROOT.rglob("*")
-        if path.suffix in TEXT_SUFFIXES and not _NOT_SOURCE & set(path.parts)
-    )
+    """The files this repository *tracks*, in the formats the conversion covered.
+
+    Tracked rather than everything under the root, and the difference is not
+    theoretical. The harness's CI checks this repository out **inside** its own
+    workspace so the two specifications can be compared -- and a walk of the
+    directory there read *this* module and reported the spellings it necessarily
+    contains as the harness's own. Green locally, red in CI, naming a file that
+    repository does not own. The same shape is latent here.
+
+    A walk also lets an untracked scratch file fail a build, which is a second
+    way for a check's universe to be wider than the rule it enforces.
+    """
+    listed = subprocess.run(
+        ["git", "ls-files"],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.splitlines()
+    tracked = [REPO_ROOT / name for name in listed if name]
+    return sorted(path for path in tracked if path.suffix in TEXT_SUFFIXES and path.is_file())
 
 
 #: What D14 moved out of phase 1, and the phrases the documents use to name it.
