@@ -1,6 +1,6 @@
 """Connected components over the comparison graph.
 
-Why this exists even though the fit always returns numbers: the regularisation
+Why this exists even though the fit always returns numbers: the regularization
 (D13) connects every item to a virtual opponent at the scale origin, so the model
 is always identifiable and always converges. That makes the estimates *defined*
 but not always *evidentially comparable* — two groups never judged against each

@@ -115,7 +115,7 @@ class TestInitDoesNotDestroyAStore:
         session = Session.open(Path(store), rater_id="r")
         assert session.progress().excluded_questions == 1
 
-    def test_force_re_initialises_an_unjudged_store(self, workspace: Path) -> None:
+    def test_force_re_initializes_an_unjudged_store(self, workspace: Path) -> None:
         store = _loaded(workspace)
         assert main(["init", "--store", store, "--force"]) == 0
 

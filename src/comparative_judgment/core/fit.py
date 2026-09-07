@@ -1,4 +1,4 @@
-"""The regularised Bradley-Terry fit.
+"""The regularized Bradley-Terry fit.
 
 Bradley-Terry gives each item a strength ``pi`` and says the probability that
 *i* is judged more severe than *j* is ``pi_i / (pi_i + pi_j)``. Fitting it to a
@@ -9,7 +9,7 @@ sort would have skipped.
 
 Two implementation facts carry most of the risk in this module.
 
-**Regularisation is required, not a refinement (D13).** The unregularised maximum
+**Regularization is required, not a refinement (D13).** The unregularized maximum
 likelihood estimate *diverges* for any item that wins or loses all of its
 comparisons. On a severity scale that is guaranteed rather than exceptional: the
 most severe finding beats everything it meets and the least severe loses
@@ -17,7 +17,7 @@ everything. The failure is silent — the iteration drifts toward its cap and
 returns large arbitrary numbers that look like data. Each item therefore gets
 ``LAMBDA`` pseudo-wins and ``LAMBDA`` pseudo-losses against a virtual opponent
 fixed at the scale origin, which makes every estimate finite and, as a
-side-effect, pins the origin so no separate normalisation step is needed.
+side-effect, pins the origin so no separate normalization step is needed.
 
 **Determinism is engineered, not hoped for.** Items are sorted by id before any
 array is built, so the summation order is fixed and identical judgments produce
@@ -41,7 +41,7 @@ import numpy as np
 from comparative_judgment.core.errors import FitDidNotConvergeError
 from comparative_judgment.core.models import Comparison, Estimate
 
-#: Regularisation strength: pseudo-wins and pseudo-losses per item against a
+#: Regularization strength: pseudo-wins and pseudo-losses per item against a
 #: virtual opponent at the origin. Stated here and in the README rather than
 #: buried, because it visibly compresses the extremes of the scale.
 LAMBDA: Final[float] = 0.5
@@ -93,7 +93,7 @@ class FitResult:
     estimates: tuple[Estimate, ...]
     iterations: int
     ties: int
-    regularisation: float
+    regularization: float
 
     def theta(self) -> dict[str, float]:
         return {e.finding_id: e.theta for e in self.estimates}
@@ -115,7 +115,7 @@ def fit(item_ids: Sequence[str], comparisons: Iterable[Comparison]) -> FitResult
     n = len(items)
 
     if n == 0:
-        return FitResult(estimates=(), iterations=0, ties=0, regularisation=LAMBDA)
+        return FitResult(estimates=(), iterations=0, ties=0, regularization=LAMBDA)
 
     wins = np.zeros(n, dtype=np.float64)
     losses = np.zeros(n, dtype=np.float64)
@@ -144,9 +144,9 @@ def fit(item_ids: Sequence[str], comparisons: Iterable[Comparison]) -> FitResult
         key = (i, j) if i < j else (j, i)
         pair_counts[key] = pair_counts.get(key, 0.0) + 1.0
 
-    # Regularisation: LAMBDA wins and LAMBDA losses each, against the virtual
+    # Regularization: LAMBDA wins and LAMBDA losses each, against the virtual
     # opponent. `virtual_counts` is the 2*LAMBDA comparisons that implies.
-    regularised_wins = wins + LAMBDA
+    regularized_wins = wins + LAMBDA
     virtual_counts = 2.0 * LAMBDA
 
     # Sorted so the summation order is fixed: identical judgments must produce
@@ -174,7 +174,7 @@ def fit(item_ids: Sequence[str], comparisons: Iterable[Comparison]) -> FitResult
             denominator += np.bincount(right_idx, weights=contribution, minlength=n)
         denominator += virtual_counts / (strength + _VIRTUAL_STRENGTH)
 
-        updated = regularised_wins / denominator
+        updated = regularized_wins / denominator
         shift = np.abs(np.log(updated) - np.log(strength)).max()
         strength = updated
         if shift < TOL:
@@ -202,5 +202,5 @@ def fit(item_ids: Sequence[str], comparisons: Iterable[Comparison]) -> FitResult
         estimates=estimates,
         iterations=iterations,
         ties=tie_total,
-        regularisation=LAMBDA,
+        regularization=LAMBDA,
     )

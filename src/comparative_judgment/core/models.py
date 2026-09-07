@@ -34,7 +34,7 @@ FORBIDDEN_FINDING_KEYS: Final[frozenset[str]] = frozenset({"severity"})
 class Tier(StrEnum):
     """Whether an entry is a defect at all.
 
-    `QUESTION` entries are open questions about behaviour that may be correct by
+    `QUESTION` entries are open questions about behavior that may be correct by
     design. They have no consequence to compare against, so they are excluded
     from batches, from the fit and from the anchor set — a rated question row
     would become an anchor that silently distorts every later placement.

@@ -2,7 +2,7 @@
 
 These are the ones that fail silently if they regress. Nothing about a core
 module importing a UI library, or a stray network call, or a model dependency
-appearing in the lockfile would break any behavioural test; each would simply
+appearing in the lockfile would break any behavioral test; each would simply
 make a documented guarantee untrue while everything still passed.
 """
 
@@ -324,7 +324,9 @@ class TestRepositoryHygiene:
         ]
         assert not unpinned, f"expressed as a floor or range rather than a pin: {unpinned}"
 
-    def test_licence_exists_and_is_apache(self) -> None:
-        licence = (REPO_ROOT / "LICENSE").read_text(encoding="utf-8")
-        assert "Apache License" in licence
-        assert "Copyright 2026 Saso Gale" in licence
+    def test_license_exists_and_is_apache(self) -> None:
+        # `license` is a builtin; `licence` was not, so the US conversion would
+        # have introduced a shadow that the British spelling had avoided.
+        text = (REPO_ROOT / "LICENSE").read_text(encoding="utf-8")
+        assert "Apache License" in text
+        assert "Copyright 2026 Saso Gale" in text

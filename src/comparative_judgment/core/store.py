@@ -131,7 +131,7 @@ def _read_json(path: Path) -> dict[str, object]:
 class Store:
     """An open store directory.
 
-    Construct via :meth:`create` or :meth:`open`; the initialiser deliberately
+    Construct via :meth:`create` or :meth:`open`; the initializer deliberately
     does no filesystem work, so an instance never half-exists.
     """
 
@@ -163,7 +163,7 @@ class Store:
     ) -> Store:
         """Create a store directory, refusing to overwrite one that exists.
 
-        `force` re-initialises an existing store, and still refuses once any
+        `force` re-initializes an existing store, and still refuses once any
         judgment has been recorded. Creating rewrites `cuts.json` empty, so
         without this guard a re-run destroys the three band cuts — a deletion, in
         a store whose stated property is that nothing is ever deleted.
@@ -175,12 +175,12 @@ class Store:
                 msg = (
                     f"a store already exists at {target}. Creating would rewrite "
                     "cuts.json empty and discard the three band cuts; pass force to "
-                    "re-initialise deliberately"
+                    "re-initialize deliberately"
                 )
                 raise StoreExistsError(msg)
             if cls(target, clock=clock)._read_lines(target / LOG_FILE):
                 msg = (
-                    f"the store at {target} holds recorded judgments; re-initialising "
+                    f"the store at {target} holds recorded judgments; re-initializing "
                     "would leave them referring to findings and cuts that no longer "
                     "exist. Point at a new path instead"
                 )

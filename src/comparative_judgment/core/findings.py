@@ -11,7 +11,7 @@ Two refusals here are load-bearing rather than defensive:
   produced by this tool and joined by id; a findings file that also carries it
   has two sources of truth, and the tool never mutates the document it reads.
 * Entries with ``tier: question`` are excluded from the batch. They are
-  non-defects — open questions about behaviour that may be correct by design —
+  non-defects — open questions about behavior that may be correct by design —
   so they have no consequence to compare against. Rating one is meaningless on
   its own terms, and the damage compounds: a rated question row enters the
   anchor set, where it becomes a reference point every later placement is

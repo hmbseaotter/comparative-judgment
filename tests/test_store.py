@@ -231,7 +231,7 @@ class TestDeterminism:
         """Same inputs, same files.
 
         Byte-identity here is what makes the reproducibility claim testable
-        further up: if the store's own serialisation wandered, no downstream
+        further up: if the store's own serialization wandered, no downstream
         determinism assertion would mean anything.
         """
         digests: list[str] = []

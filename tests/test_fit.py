@@ -98,7 +98,7 @@ class TestRegularisation:
         result = fit(names, judgments)
         top = result.theta()["top"]
         # isfinite, not an approx self-comparison: it says what is meant, and it
-        # catches inf as well as nan. Unregularised, this value diverges.
+        # catches inf as well as nan. Unregularized, this value diverges.
         assert math.isfinite(top)
         assert abs(top) < 100.0
 
@@ -151,7 +151,7 @@ class TestRegularisation:
         assert result.theta()["lonely"] == pytest.approx(0.0, abs=1e-9)
 
     def test_the_strength_is_reported(self) -> None:
-        assert fit(["a"], []).regularisation == LAMBDA
+        assert fit(["a"], []).regularization == LAMBDA
 
 
 class TestNoDecidedComparisons:

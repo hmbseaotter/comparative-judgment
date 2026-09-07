@@ -36,7 +36,7 @@
 
 > **Refined by D9.** This entry originally read "there is a default store location, it is gitignored" while a requirement elsewhere said invoking with no path must fail by name — a contradiction. D9 resolves it: no implicit fallback exists, but the location the documentation uses is gitignored.
 
-**Why** — A general-purpose severity tool will eventually be pointed at real production findings by someone, and a default that quietly wants committing is a trap laid for that person. (B) suits this project specifically — shared anchors travelling with the repo is exactly what the source design's bootstrap argues for — but it optimises for the author at a stranger's expense. (C) was rejected because the source design explicitly frames this as "a clean standalone open-source artifact in its own right", and the decision to separate it from the harness was made partly so it could stand alone.
+**Why** — A general-purpose severity tool will eventually be pointed at real production findings by someone, and a default that quietly wants committing is a trap laid for that person. (B) suits this project specifically — shared anchors travelling with the repo is exactly what the source design's bootstrap argues for — but it optimizes for the author at a stranger's expense. (C) was rejected because the source design explicitly frames this as "a clean standalone open-source artifact in its own right", and the decision to separate it from the harness was made partly so it could stand alone.
 
 **Consequences / caveats** — The author's own anchor set for the harness's **design set** can still be committed deliberately, since those findings are synthetic *and* public. The README must state that findings text may be sensitive.
 
@@ -202,7 +202,7 @@ Severity ownership went to a separate file because the tool must never mutate a 
 
 **Decision ✅** — **(A).**
 
-**Why** — (C) is what caused the problem: an interface described on one side only drifts, and the harness spec had already fixed six keys this document did not mention. (B) is worse than it sounds. Question-tier rows are **non-defects by definition** — open questions for the owning team about behaviour that may be correct by design — so they have no consequence to compare against. Rating them is meaningless on its own terms, and the damage compounds: a rated question row enters the **anchor set**, where it becomes a reference point that every later placement is measured against. A scale anchored partly on items with no consequence is quietly wrong everywhere, and nothing in the output would reveal it. Reporting the excluded count keeps the exclusion visible rather than silent, so a rater who expected 70 findings and sees 63 admitted knows why.
+**Why** — (C) is what caused the problem: an interface described on one side only drifts, and the harness spec had already fixed six keys this document did not mention. (B) is worse than it sounds. Question-tier rows are **non-defects by definition** — open questions for the owning team about behavior that may be correct by design — so they have no consequence to compare against. Rating them is meaningless on its own terms, and the damage compounds: a rated question row enters the **anchor set**, where it becomes a reference point that every later placement is measured against. A scale anchored partly on items with no consequence is quietly wrong everywhere, and nothing in the output would reveal it. Reporting the excluded count keeps the exclusion visible rather than silent, so a rater who expected 70 findings and sees 63 admitted knows why.
 
 **Consequences / caveats** — The tool now depends on `tier` being present, so it is a required key rather than an optional one — which the harness spec's schema already makes it. Found by executing D9's own stated rule (that the two specs' descriptions of this interface must stay in agreement), not by review — the first time that rule paid for itself, one decision after being written.
 
@@ -249,7 +249,7 @@ Severity ownership went to a separate file because the tool must never mutate a 
 
 ---
 
-## D13 — Regularised Bradley-Terry
+## D13 — Regularized Bradley-Terry
 
 **Fork:** The maximum likelihood estimate diverges for any item that wins or loses *all* its comparisons. On a severity scale this is guaranteed, not exceptional: the most severe finding beats everything it meets and the least severe loses everything.
 
@@ -278,7 +278,7 @@ Severity ownership went to a separate file because the tool must never mutate a 
 - **(B) Accept the larger tool and the longer serial delay.**
 - **(C) Revisit the harness's D13 and run the two builds in parallel**, authoring findings without severities and backfilling.
 
-**Decision ✅** — **(A).** Moved out of phase 1: **per-item standard errors** (Fisher information and its pseudo-inverse), the **session timer**, and the **comparisons-remaining estimate**. Retained: the regularised fit's scale values, cuts, band placement, the session API, a working comparison loop with undo and tie, appearance progress, and the severity writer.
+**Decision ✅** — **(A).** Moved out of phase 1: **per-item standard errors** (Fisher information and its pseudo-inverse), the **session timer**, and the **comparisons-remaining estimate**. Retained: the regularized fit's scale values, cuts, band placement, the session API, a working comparison loop with undo and tie, appearance progress, and the severity writer.
 
 **Why** — Standard errors are the largest and subtlest piece of work in the phase, and **nothing in phase 1 consumes them**: band placement compares scale values against cut thresholds, and D11's stopping rule counts appearances rather than reading precision. They exist to serve the phase-2 diagnostics. Deferring them removes exactly the component the build prompt singles out as dangerous — a wrong derivation produces plausible numbers rather than an error — from the phase that is blocking another project. (B) was rejected because the estimate the harness's sequencing rests on is not merely optimistic but now measurably wrong, and leaving it unaddressed makes a committed decision rest on a falsified premise. (C) remains available and is the right answer if the trimmed phase still runs long; it was not chosen now because the trimmed scope plausibly restores "days, not weeks".
 
@@ -343,7 +343,7 @@ So the old cap failed on cleanliness, not on noise. (C) would mean the tool refu
 
 The general point is worth keeping: **when a decision moves work between phases, the acceptance criteria tagged to those phases move with it.** D14 moved the capability and left its criterion behind, which no linter can see — phase tags were internally consistent throughout, and the criterion was well-formed. Only running the criteria found it.
 
-**Consequences / caveats** — Phase 1 passed 30 of 31 criteria before this split and 31 of 31 after; the change is bookkeeping, not a behaviour fix. Phase 2 now inherits an assertion written before its implementation exists, which is the right direction for that dependency to run.
+**Consequences / caveats** — Phase 1 passed 30 of 31 criteria before this split and 31 of 31 after; the change is bookkeeping, not a behavior fix. Phase 2 now inherits an assertion written before its implementation exists, which is the right direction for that dependency to run.
 
 **Rule** — A phase is not reported complete until every criterion tagged to it has been run and passed. Where a criterion cannot pass, it is split or retagged before the phase is called done, never excused in prose. Enforced by judgment during the acceptance walkthrough — *not checkable*, since no linter can tell an unreachable criterion from a failing one.
 
@@ -361,7 +361,7 @@ The general point is worth keeping: **when a decision moves work between phases,
 
 **Decision ✅** — **(A).** `cj load` refuses, naming each changed finding and how many comparisons were made against its old text. `--accept-revisions` proceeds, and each acceptance appends a `revision` record to the log carrying finding id, both hashes, rater id and timestamp.
 
-**Why** — The requirement as written was *wrong*, not merely unbuilt. Strict forking (D) is hostile to normal work: correcting a spelling mistake would orphan every judgment about that finding, which teaches a rater not to improve their own prose. (B) is the most correct model and carries the same practical objection at much greater cost. (C) is the silent behaviour with a message attached, and a warning in a long load output is one nobody reads. Nothing can distinguish a typo from a rewrite automatically — so the tool refuses and a **human decides**, which is the only actor that can tell them apart.
+**Why** — The requirement as written was *wrong*, not merely unbuilt. Strict forking (D) is hostile to normal work: correcting a spelling mistake would orphan every judgment about that finding, which teaches a rater not to improve their own prose. (B) is the most correct model and carries the same practical objection at much greater cost. (C) is the silent behavior with a message attached, and a warning in a long load output is one nobody reads. Nothing can distinguish a typo from a rewrite automatically — so the tool refuses and a **human decides**, which is the only actor that can tell them apart.
 
 The audit trail was the project owner's addition and it materially improves the option. Because acceptances live in the same append-only log as comparisons, **an acceptance changes the log hash** — so a severity file naming that hash is tied to a history that includes the acceptance rather than one that conceals it. Who, when, which finding, and which text it moved between are all recoverable.
 
@@ -407,11 +407,11 @@ Only *judged* findings are reported. A change to something nobody compared costs
 
 **Why** — The three cuts are the only absolute judgments the tool ever asks for; the whole "exactly three, regardless of batch size" claim rests on them. Losing them to a command whose name reads as safe, with a success message and a zero exit, is the worst shape a data-loss bug can take.
 
-(B) is nearly right and was close. It loses to (A) only on the false-start case — a store created at the wrong path, before any judgment — where forcing a user to reach for `rm -rf` is worse advice than giving them a flag. The flag is safe precisely because it *keeps* the refusal that matters: once a single judgment exists, `--force` refuses too, because re-initialising would leave those judgments referring to findings and cuts that no longer exist.
+(B) is nearly right and was close. It loses to (A) only on the false-start case — a store created at the wrong path, before any judgment — where forcing a user to reach for `rm -rf` is worse advice than giving them a flag. The flag is safe precisely because it *keeps* the refusal that matters: once a single judgment exists, `--force` refuses too, because re-initializing would leave those judgments referring to findings and cuts that no longer exist.
 
 (C) is the most seductive and the most dangerous: "leave what is there" quietly becomes "and silently keep whatever was stale", which is how a store ends up half-belonging to two batches.
 
-**Rule** — Acceptance criteria, enforced by test: `init` against an existing store refuses by name and changes no file; the cuts and the load summary both survive; `--force` re-initialises an unjudged store and still refuses a judged one.
+**Rule** — Acceptance criteria, enforced by test: `init` against an existing store refuses by name and changes no file; the cuts and the load summary both survive; `--force` re-initializes an unjudged store and still refuses a judged one.
 
 ---
 
@@ -430,7 +430,7 @@ Only *judged* findings are reported. A change to something nobody compared costs
 
 (B) is what `status` already did, and the audit's evidence is what it looks like in practice: the warning was in one command and the wrong answer came out of three others. (C) is a real design, and it is phase 3's — multi-rater analysis is where independent scales get reconciled, and inventing a partial version here would be a scale-per-component with no way to relate them.
 
-**Consequences / caveats** — Connectivity is computed over items with at least one appearance. Counting unjudged items would report every part-way batch as disconnected, and a warning that fires constantly is one nobody reads. A test asserting the old behaviour — the warning firing on a batch with *no* comparisons at all — was rewritten: it had been passing while saying something false.
+**Consequences / caveats** — Connectivity is computed over items with at least one appearance. Counting unjudged items would report every part-way batch as disconnected, and a warning that fires constantly is one nobody reads. A test asserting the old behavior — the warning firing on a batch with *no* comparisons at all — was rewritten: it had been passing while saying something false.
 
 **Rule** — Acceptance criteria, enforced by test: `bands` and `export` over a disconnected graph refuse by name and write nothing; `fit` names the components; `status` names them and identifies members.
 
@@ -552,7 +552,7 @@ A stray retraction is inert to the fit, which filters by a set. It is not inert 
 - **The appearance target of 10 is the same untested estimate it was adopted from.** Its *arithmetic* is now measured — the audit ran 50 findings at target 10 and spent exactly 251 comparisons, landing on the spec's ~250 estimate. Whether ten appearances buys enough **reliability** is still untested, and that is the half the number was chosen for.
 - **Interactive latency is unmeasured as a requirement.** The only performance NFR covers the fit (0.14 s against a five-second budget). The audit measured what a rater actually feels: 28 ms per keypress at 25 findings, 42 ms at 50, 64 ms at 100 — imperceptible at the ~70-finding corpus this targets. It is roughly linear in *n*, because `next_pair()` and `record()` between them re-read the log and the findings index about nine times per judgment. Extrapolated to 1,000 findings that is on the order of half a second per keypress, in a tool whose entire premise is that per-comparison friction cancels the method's benefit (D3). Not a phase-1 defect; a phase-2 requirement waiting to be written.
 - **The remaining O(n²) is in the session, not the store.** D19 removed the store's, and the 0.5.0 changelog's claim that "the sequence counter is cached, ending an O(n-squared) session cost" was narrower than it read: one such cost ended, and the one above did not. Stated here so the next reader does not conclude the session is linear.
-- **Concurrency beyond interleaved appends is unexplored.** D19 closes the reachable case — two handles appending in turn. Two processes appending at the *same instant* can still collide, and nothing in the store takes a lock. Demonstrated at its simplest by the audit; cross-process behaviour is inferred from the same code path, not executed.
+- **Concurrency beyond interleaved appends is unexplored.** D19 closes the reachable case — two handles appending in turn. Two processes appending at the *same instant* can still collide, and nothing in the store takes a lock. Demonstrated at its simplest by the audit; cross-process behavior is inferred from the same code path, not executed.
 - **No literature review was performed.** The method and the ten-appearances figure come from general knowledge of comparative judgment practice, not from cited sources. The audit did not check them against sources either.
 - **Whether bands are recomputed or frozen after a refit was decided in principle** (freeze, propose revisions) and is still not written as a requirement.
 - **Carrying judgments across an accepted revision (D18) or a removal (D22) is unmeasured.** Nobody knows how far text can drift before old judgments stop meaning anything, and the tool tells a rater only that the hashes differ — not how large the change was.

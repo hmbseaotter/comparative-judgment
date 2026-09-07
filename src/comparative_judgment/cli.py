@@ -189,7 +189,7 @@ def cmd_fit(args: argparse.Namespace) -> int:
     session = _session(args, target=args.target)
     result = session.fit()
     print(f"converged in {result.iterations} iteration(s); {result.ties} tie(s) excluded")
-    print(f"regularisation lambda = {result.regularisation}")
+    print(f"regularization lambda = {result.regularization}")
     print()
     print(f"{'finding':<16} {'theta':>9} {'app':>5} {'W':>4} {'L':>4} {'T':>4}")
     for estimate in result.ranked():
@@ -304,7 +304,7 @@ def build_parser() -> argparse.ArgumentParser:
     init.add_argument(
         "--force",
         action="store_true",
-        help="re-initialise an existing store; still refused once judgments exist",
+        help="re-initialize an existing store; still refused once judgments exist",
     )
     init.set_defaults(func=cmd_init)
 

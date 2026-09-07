@@ -73,18 +73,18 @@ caller supplied.
 1. **Core data model + append-only comparison log.** Findings carry a stable id *and a content hash*
    — revised text becomes a new item, and comparisons stay bound to the version actually judged.
    > **Overtaken by D18.** Automatic forking was found to be hostile to normal work: correcting a
-   > spelling mistake would orphan every judgment about that finding. The implemented behaviour is
+   > spelling mistake would orphan every judgment about that finding. The implemented behavior is
    > refuse-then-audit — the load is refused, each changed judged finding is named with its
    > comparison count, and accepting is recorded in the log. D22 extends the same treatment to a
    > finding *removed* from the document.
    Comparisons carry both item ids, the outcome, rater id, session id and a UTC timestamp. The rater
    id is present from the first commit even though there is one rater (D4): retrofitting it later
    leaves every existing comparison unattributable.
-2. **Regularised Bradley-Terry fit** by maximum likelihood (the standard MM iteration), producing
+2. **Regularized Bradley-Terry fit** by maximum likelihood (the standard MM iteration), producing
    scale values only — **no standard errors in this phase (D14)**. **Determinism must be engineered,
    not hoped for**: fixed convergence tolerance, fixed iteration cap, deterministic item ordering,
    deterministic tie-breaking. Non-convergence within the cap reports failure and emits nothing.
-   **Regularisation is required, not optional (D13):** apply a symmetric prior of λ = 0.5
+   **Regularization is required, not optional (D13):** apply a symmetric prior of λ = 0.5
    pseudo-wins and λ = 0.5 pseudo-losses per item against a virtual opponent at the scale origin.
    Without it the estimate diverges for any item that wins or loses *all* its comparisons —
    guaranteed at both ends of a severity scale, and the failure is silent: the iteration drifts to
@@ -121,7 +121,7 @@ caller supplied.
 8. **Resumable sessions.** The bootstrap is ~250 comparisons and is expected to span sittings.
    Largely a matter of reading back the append-only log.
 9. **Simple heuristic pairing** — pair items whose current estimates are close. This is what makes
-   the ~10-appearances estimate plausible rather than optimistic. Adaptive information-maximising
+   the ~10-appearances estimate plausible rather than optimistic. Adaptive information-maximizing
    selection is phase 3; do not build it now.
    **The cold-start phase ends when every admitted item reaches a configured appearance target,
    default 10 (D11)**, with per-item progress shown; the rater may stop earlier or continue. That
@@ -216,6 +216,6 @@ Stack: Python 3.12+, `uv` with a committed lockfile pinning **exact** versions (
 - If the spec changes, add a changelog line and bump the version.
 - Do not add packages outside "constraints" without flagging first.
 
-**Regeneration test:** could an agent rebuild phase 1 from the spec alone and produce behaviourally
+**Regeneration test:** could an agent rebuild phase 1 from the spec alone and produce behaviorally
 identical output? If not, you have found what the spec is missing — fix it *there*, not only in the
 code.

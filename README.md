@@ -32,7 +32,7 @@ Three commands refuse rather than proceed, and each refusal is the point:
 ```bash
 cj init --store .cj-store          # refuses if a store is already there --
                                    # creating would wipe the three band cuts
-cj init --store .cj-store --force  # re-initialises, and still refuses once
+cj init --store .cj-store --force  # re-initializes, and still refuses once
                                    # any judgment has been recorded
 cj load --store .cj-store --findings findings.yaml --rater you --accept-revisions
 cj load --store .cj-store --findings findings.yaml --rater you --accept-removals
@@ -81,7 +81,7 @@ F-04               -2.1416     4    0    4    0
 ```
 
 Note `F-01` won every comparison and `F-04` lost every one, and both still have finite values. That
-is the regularisation below; without it those two would have run away to infinity, and they are
+is the regularization below; without it those two would have run away to infinity, and they are
 precisely the Critical and Low findings whose bands matter most.
 
 The severity file names the run it came from, so a value can always be traced back:
@@ -150,13 +150,13 @@ a model dependency appears.
 
 ## How severity is derived
 
-Comparisons accumulate in an append-only log. A **regularised Bradley-Terry** model fits a scale to
+Comparisons accumulate in an append-only log. A **regularized Bradley-Terry** model fits a scale to
 them, and three **band cuts** — the only absolute judgments the tool ever asks for, regardless of
 how many findings you have — divide that scale into Critical / High / Medium / Low.
 
 Two details worth knowing before you read numbers out of it:
 
-- **Regularisation strength is λ = 0.5**, applied as pseudo-wins and pseudo-losses per item against
+- **Regularization strength is λ = 0.5**, applied as pseudo-wins and pseudo-losses per item against
   a virtual opponent at the scale origin. Without it the estimate diverges for any item that wins or
   loses *all* its comparisons — guaranteed at both ends of a severity scale. It compresses the
   extremes by a bounded amount, which affects reported scale values and not which side of a cut an
@@ -165,6 +165,6 @@ Two details worth knowing before you read numbers out of it:
   no absolute origin, so a stored threshold means something only relative to the fit that produced
   it.
 
-## Licence
+## License
 
 Apache-2.0 — see [LICENSE](LICENSE).
