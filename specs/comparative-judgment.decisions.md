@@ -3,7 +3,7 @@
 - **Project:** comparative-judgment — severity scoring by pairwise comparison
 - **Identity:** A standalone tool that lets a rater assign defensible severity to findings by answering only "which of these two is worse?", never by picking a number on a scale.
 - **Spec:** `specs/comparative-judgment.md`
-- **Status:** D1–D26 recorded. D1–D8 from the /specify session of 2026-08-28; D9 settled at emit, resolving a contradiction the linter surfaced; D10 at the cross-repository interface pass; D11–D13 at the phase-1 plan gate; D14–D15 at the sweep that followed; D16 during the build; D17–D18 at the post-build sweep; **D19–D26 after an independent audit of 0.5.0** — a session that had written none of the code, read the spec, the record and the source, then ran the tool against constructed inputs and reported forty-one findings.
+- **Status:** see *Document status* at the end of this file for the current high-water mark, which is the one place it is maintained and the one place a test reads. This line carried its own copy until an audit filed it as C-9: a number written in two places is a number that goes stale in one of them, and this is the copy a reader meets first. The provenance is what the line is actually for. D1–D8 from the /specify session of 2026-08-28; D9 settled at emit, resolving a contradiction the linter surfaced; D10 at the cross-repository interface pass; D11–D13 at the phase-1 plan gate; D14–D15 at the sweep that followed; D16 during the build; D17–D18 at the post-build sweep; **D19–D26 after an independent audit of 0.5.0** — a session that had written none of the code, read the spec, the record and the source, then ran the tool against constructed inputs and reported forty-one findings; **D27 from the audit that followed**, which read all three repositories.
 - **Legend:** ✅ decided · 🔶 open / revisit · ⏭️ deferred to a later phase
 
 <!-- rules-required-from: D9 -->
@@ -541,6 +541,27 @@ A stray retraction is inert to the fit, which filters by a set. It is not inert 
 
 ---
 
+## D27 — US spelling, so two repositories sharing an interface do not disagree about orthography
+
+**Fork:** This repository was written in one variety throughout, and the consuming harness converted to US at `745d1a6`. An independent audit filed the difference as *"a cross-repository choice to make deliberately, not a defect"* — this repository being internally consistent, which is what a style rule strictly requires. Convert, or record the difference and keep it?
+
+**Options considered**
+- **(A) Convert this repository to US**, matching the harness.
+- **(B) Keep the existing variety and record the choice as deliberate**, since internal consistency is the actual requirement and converting touches a field on a public dataclass.
+- **(C) Convert prose only and leave identifiers**, treating names as API surface.
+
+**Decision ✅** — **(A).** Case-preserving replacement across tracked text files, with identifiers renamed by hand wherever `_` blocks a word boundary. `LICENSE` is excluded as a legal text and `uv.lock` as generated package metadata.
+
+**Why** — (C) is the option that sounds careful and is not. It leaves the repository mixed, which is the state a spelling rule exists to prevent, and it needs an exemption shaped like *"names"* — a boundary that grows to fit whatever is inconvenient to change. (B) was the audit's own framing and is defensible; it loses on the shared interface. A scanner compares this spec against the harness's field by field, the two decision records cross-cite each other by number, and a reader moving between them meets two spellings of one concept. Fifty-five lines now, against a difference that never resolves itself.
+
+**Consequences / caveats** — `FitResult.regularization` is renamed and it is a field on a public dataclass. It appears in no severity file and in nothing the harness reads, which was checked before the rename rather than after.
+
+**The guard found six sites the conversion had missed, on its first run.** A word-boundary replacement cannot reach inside `unrecognized` or `TestRegularization` — the same limit that forced the renames by hand — so the guard matches substrings instead, and is deliberately wider than the change it holds rather than exactly as wide. **The harness's own conversion is held by nothing at all**, which is the half of this decision it does not have.
+
+**Rule** — `tests/test_constraints.py::test_no_other_variety_spelling_returns`, planted by `test_the_spelling_guard_finds_a_planted_word`. The word list is stored in US form and its pairs derived at runtime, because this module sits inside the scan's own scope and a written-out list would be found by the check that reads it; the one function that must write two of them out is exempted by `ast`, and the exemption is asserted to conceal exactly those two.
+
+---
+
 ## Not checked — as of 0.6.0 @ D26
 
 *Refreshed after an independent audit of 0.5.0 by a session that had written none of this code. Three earlier entries were retired because the audit resolved them: cut inversion has now been observed through the front end rather than only constructed in tests, the uncovered-lines list was measured rather than recalled, and the O(n²) claim was corrected below. **The most useful thing the audit produced was not a finding but a shape:** of forty-one, none was a mistake in the mathematics — the part checked hardest — and the recurring failure was a guard whose coverage was narrower than the rule it enforced, green and blind at the same time.*
@@ -564,8 +585,8 @@ A stray retraction is inert to the fit, which filters by a set. It is not inert 
 
 ## Document status
 
-Decisions **D1–D26** recorded. The most consequential is **D2**, which overturns the source design's central algorithmic choice; **D5** additionally settles a gap in a second project's specification, which must be amended to match.
+Decisions **D1–D27** recorded. The most consequential is **D2**, which overturns the source design's central algorithmic choice; **D5** additionally settles a gap in a second project's specification, which must be amended to match.
 
 Spec: `specs/comparative-judgment.md`. Build prompt: `specs/comparative-judgment.build-prompt.md` (phase 1, frozen).
 
-Any new fork encountered during the build is appended here in the same shape, and from **D9** onward each entry ends with a `**Rule**` line naming what enforces it. Numbering continues from **D27**.
+Any new fork encountered during the build is appended here in the same shape, and from **D9** onward each entry ends with a `**Rule**` line naming what enforces it. Numbering continues from **D28**. Both figures, and the gaplessness of the sequence between them, are asserted by `tests/test_constraints.py::test_the_decision_record_states_its_own_high_water_mark` — so this section is the maintained copy rather than a remembered one, and the header no longer keeps a second.

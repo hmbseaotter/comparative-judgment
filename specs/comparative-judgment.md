@@ -140,7 +140,7 @@ Persistent by design — the comparison log *is* the product, and the ordering i
 - IF [P1] the system cannot write the severity file where it was asked to, the system SHALL report a named refusal.
 - IF [P1] an operation would fail validation, the system SHALL complete every check before writing anything, so that a refused operation leaves the store byte-identical.
 - IF [P1] a finding's `tier` is `question`, the system SHALL exclude it from the batch, from the fit and from the anchor set, and SHALL report how many were excluded.
-- IF [P1] a store is opened whose schema version is unrecognised, the system SHALL refuse to write and SHALL report the version mismatch.
+- IF [P1] a store is opened whose schema version is unrecognized, the system SHALL refuse to write and SHALL report the version mismatch.
 - IF [P1] the caller supplies no store path, the system SHALL fail with a named error rather than defaulting to a path inside the repository.
 
 ### optional feature (WHERE — behind a flag / config)
@@ -158,7 +158,7 @@ Persistent by design — the comparison log *is* the product, and the ordering i
 
 ## failure & escalation
 - Recoverable: a mis-keyed comparison is retracted by the rater and appended as a retraction; a session interrupted at any point resumes from its persisted position.
-- Unrecoverable: unrecognised store schema, non-convergent fit, disconnected comparison graph where a cross-component comparison was requested, malformed findings file — each halts with a named cause and writes nothing.
+- Unrecoverable: unrecognized store schema, non-convergent fit, disconnected comparison graph where a cross-component comparison was requested, malformed findings file — each halts with a named cause and writes nothing.
 - Stuck / uncertain: a rater who cannot decide marks a tie; this is a first-class outcome, not a failure, and feeds the tie rate.
 - Escalation channel: non-zero exit code with a named cause on stderr; the log is left intact for inspection.
 
@@ -214,7 +214,7 @@ Persistent by design — the comparison log *is* the product, and the ordering i
 - [ ] [P1] A findings entry whose `evidence` holds three separate fragments is read with all three still distinct.
 - [ ] [P1] A finding with no comparison recorded against it receives no band, and is reported as unplaced rather than defaulted.
 - [ ] [P1] A session killed immediately after a keypress retains that comparison on restart, proving it was persisted before the next pair was presented.
-- [ ] [P1] A store whose schema version is unrecognised refuses to write and names the version mismatch.
+- [ ] [P1] A store whose schema version is unrecognized refuses to write and names the version mismatch.
 
 ### constraint validation
 - [ ] [P1] `mypy --strict` passes with zero errors and zero ignores; `ruff check` and `ruff format --check` pass.

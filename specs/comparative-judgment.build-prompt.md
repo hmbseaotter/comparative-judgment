@@ -183,7 +183,7 @@ Stack: Python 3.12+, `uv` with a committed lockfile pinning **exact** versions (
       from the fit and the anchor set, and reports the excluded count.
 - [ ] A findings entry whose `evidence` holds three fragments is read with all three still distinct.
 - [ ] A finding with no comparison against it receives no band and is reported as unplaced.
-- [ ] A store with an unrecognised schema version refuses to write and names the mismatch.
+- [ ] A store with an unrecognized schema version refuses to write and names the mismatch.
 - [ ] Invoking with no store path fails by name rather than writing inside the repository.
 - [ ] A recorded comparison carries all six fields; the count missing any is zero.
 - [ ] A running session displays comparisons spent and per-item appearance progress.

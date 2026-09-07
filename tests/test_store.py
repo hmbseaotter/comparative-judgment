@@ -73,7 +73,7 @@ class TestStorePath:
 
 
 class TestSchemaGuard:
-    """An unrecognised layout refuses to write rather than guessing."""
+    """An unrecognized layout refuses to write rather than guessing."""
 
     def test_unknown_schema_version_names_the_mismatch(self, tmp_path: Path) -> None:
         Store.create(tmp_path / "s", clock=_fixed_clock)

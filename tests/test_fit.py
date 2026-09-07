@@ -85,7 +85,7 @@ class TestDeterminism:
         assert fit(names, judgments).theta() == fit(list(reversed(names)), judgments).theta()
 
 
-class TestRegularisation:
+class TestRegularization:
     """Without the prior these cases diverge. They are the normal case, not edges."""
 
     def test_an_item_that_wins_everything_is_finite(self) -> None:

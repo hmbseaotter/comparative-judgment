@@ -9,6 +9,7 @@ make a documented guarantee untrue while everything still passed.
 from __future__ import annotations
 
 import ast
+import re
 import socket
 import tomllib
 from collections.abc import Iterable
@@ -22,6 +23,48 @@ from comparative_judgment.core.session import Session
 from comparative_judgment.core.store import Store
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
+
+#: The US spellings whose other-variety forms this repository converted away
+#: from at D27. Stored in the US form and transformed below rather than listed
+#: as the forms being forbidden, because this module is inside the scan's own
+#: scope: writing them out here would mean the check finds the file that
+#: defines it. A text checker cannot spell out what it forbids.
+#:
+#: Three words are deliberately absent -- analysis, realistic and optimistic.
+#: They are spelled the same in both varieties, and the enumeration that
+#: proposed the conversion reported all three because it matched a prefix
+#: rather than a whole word.
+US_SPELLINGS = frozenset(
+    {
+        "license",
+        "regularization",
+        "regularized",
+        "unregularized",
+        "normalization",
+        "serialization",
+        "initialize",
+        "initializes",
+        "initializing",
+        "initializer",
+        "initialization",
+        "behavior",
+        "behavioral",
+        "behaviorally",
+        "recognized",
+        "optimizes",
+        "maximizing",
+    }
+)
+
+#: The file suffixes the conversion covered. LICENSE and uv.lock fall out of
+#: this by suffix rather than by name: the first is a legal text and the second
+#: is generated from package metadata, and neither should be rewritten to match
+#: a house style.
+TEXT_SUFFIXES = frozenset({".py", ".md", ".toml", ".yml", ".yaml"})
+
+_NOT_SOURCE = frozenset(
+    {".venv", ".git", "__pycache__", ".cj-store", ".ruff_cache", ".mypy_cache", ".pytest_cache"}
+)
 SRC = REPO_ROOT / "src" / "comparative_judgment"
 CORE = SRC / "core"
 UI = SRC / "ui"
@@ -85,6 +128,82 @@ def _imports(path: Path) -> set[str]:
         elif isinstance(node, ast.ImportFrom) and node.module:
             found.add(node.module)
     return found
+
+
+def _other_variety(american: str) -> str:
+    """The other variety's spelling of one of the words above.
+
+    Three substitutions cover every word this repository converted, and they
+    are applied rather than listed for the reason the declaration gives: a
+    literal table of the forms being forbidden would be found by the check that
+    reads this file.
+    """
+    if american == "license":
+        return "licence"
+    if american.startswith("behavior"):
+        return "behaviour" + american[len("behavior") :]
+    return american.replace("iz", "is")
+
+
+#: Matched as substrings rather than on word boundaries, deliberately. `_` is a
+#: word character, so a boundary match cannot see inside an identifier -- and
+#: three identifiers are exactly what the conversion had to rename by hand. A
+#: guard blind to the case its own change needed a human for would be narrower
+#: than the rule it enforces.
+_OTHER_VARIETY = re.compile(
+    "|".join(sorted(_other_variety(word) for word in US_SPELLINGS)), re.IGNORECASE
+)
+
+
+def _constructor_lines() -> range:
+    """The lines this module spends constructing the forms it forbids.
+
+    `_other_variety` has to write two of them out, because they are not
+    reachable by the substitution the rest share. Located with `ast` rather
+    than by a marker comment, so moving or reformatting that function cannot
+    silently widen the hole -- and it is one small function, which is the
+    narrowest exemption that lets the guard scan its own module at all.
+    """
+    module = ast.parse(Path(__file__).read_text(encoding="utf-8"))
+    for node in module.body:
+        if isinstance(node, ast.FunctionDef) and node.name == "_other_variety":
+            assert node.end_lineno is not None
+            return range(node.lineno, node.end_lineno + 1)
+    raise AssertionError("_other_variety is not defined in this module")
+
+
+def _repository_text_files() -> list[Path]:
+    return sorted(
+        path
+        for path in REPO_ROOT.rglob("*")
+        if path.suffix in TEXT_SUFFIXES and not _NOT_SOURCE & set(path.parts)
+    )
+
+
+def _decision_bookkeeping(text: str) -> list[str]:
+    """What is wrong with the decision record's numbering and its stated totals.
+
+    Takes the text rather than reading it, so the control can run this over a
+    record it has mutated. A control that restates the arithmetic in its own
+    assertion proves the arithmetic, not the check.
+    """
+    problems: list[str] = []
+    numbers = sorted(int(n) for n in re.findall(r"^## D(\d+)\b", text, re.MULTILINE))
+    if not numbers:
+        return ["no decisions found; the heading shape has changed"]
+    if numbers != list(range(1, len(numbers) + 1)):
+        problems.append(f"numbering has a gap or a repeat: {numbers}")
+
+    high = numbers[-1]
+    if f"Decisions **D1\u2013D{high}** recorded" not in text:
+        problems.append(f"Document status does not state D1\u2013D{high}")
+    if f"Numbering continues from **D{high + 1}**" not in text:
+        problems.append(f"Document status does not continue from D{high + 1}")
+
+    header = text.split("<!-- rules-required-from:")[0]
+    if f"D1\u2013D{high} recorded" in header:
+        problems.append("the header restates the current high-water mark, which C-9 retired")
+    return problems
 
 
 class TestCoreIsUIAgnostic:
@@ -325,8 +444,126 @@ class TestRepositoryHygiene:
         assert not unpinned, f"expressed as a floor or range rather than a pin: {unpinned}"
 
     def test_license_exists_and_is_apache(self) -> None:
-        # `license` is a builtin; `licence` was not, so the US conversion would
-        # have introduced a shadow that the British spelling had avoided.
+        # The US form is a builtin and the form this repository converted away
+        # from is not, so the rename would have introduced a shadow that the
+        # older spelling happened to avoid.
         text = (REPO_ROOT / "LICENSE").read_text(encoding="utf-8")
         assert "Apache License" in text
         assert "Copyright 2026 Saso Gale" in text
+
+
+class TestDocumentation:
+    """Properties of the written record that no behavioral test would notice."""
+
+    DECISIONS = REPO_ROOT / "specs" / "comparative-judgment.decisions.md"
+
+    def test_no_other_variety_spelling_returns(self) -> None:
+        """D27 was a choice, and a choice with nothing behind it drifts back.
+
+        The harness made the same conversion at `745d1a6` and added no guard, so
+        its version is held by whoever next notices. This one is held by a list.
+
+        Scoped by suffix rather than by an enumeration of files, so a document
+        added tomorrow in a covered format is checked from the moment it exists
+        rather than from whenever somebody remembers to add it.
+        """
+        scanned = _repository_text_files()
+        assert len(scanned) >= 20, (
+            f"the scan reached {len(scanned)} files, which is too few to be reading the "
+            "repository; the suffix list or the skip set has drifted"
+        )
+
+        here = Path(__file__).resolve()
+        constructor = _constructor_lines()
+
+        offenders: list[str] = []
+        for path in scanned:
+            exempt = constructor if path.resolve() == here else range(0)
+            for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+                if number in exempt:
+                    continue
+                offenders += [
+                    f"{path.relative_to(REPO_ROOT)}:{number}: {word}"
+                    for word in _OTHER_VARIETY.findall(line)
+                ]
+        assert not offenders, (
+            "this repository converted to US spelling at D27, and these did not:\n  "
+            + "\n  ".join(offenders)
+        )
+
+    def test_the_spelling_guard_finds_a_planted_word(self) -> None:
+        """The guard above has only ever returned green.
+
+        A pattern with a typo in it, or a scope reaching no file, reports a
+        clean repository in exactly the words a clean repository produces. So
+        the pattern is run against text that must match and text that must not.
+
+        The third assertion is the one that matters most: it plants the case the
+        conversion needed a human for, and would fail if this pattern were ever
+        narrowed to word boundaries.
+        """
+        for american in US_SPELLINGS:
+            planted = _other_variety(american)
+            assert _OTHER_VARIETY.findall(planted), f"the guard does not find {american}'s pair"
+
+        assert not _OTHER_VARIETY.findall("analysis realistic optimistic"), (
+            "the guard flags words spelled the same in both varieties, which is the "
+            "false positive the word list was built to avoid"
+        )
+
+        assert _OTHER_VARIETY.findall(_other_variety("regularized") + "_wins"), (
+            "the guard cannot see inside an identifier, so it is blind to exactly the "
+            "case the conversion had to rename by hand"
+        )
+
+        lines = Path(__file__).read_text(encoding="utf-8").splitlines()
+        span = _constructor_lines()
+        concealed = _OTHER_VARIETY.findall("\n".join(lines[span.start - 1 : span.stop - 1]))
+        assert len(concealed) == 2, (
+            f"the exemption conceals {len(concealed)} spellings rather than the two the "
+            "constructor has to write out. Bounding what it hides rather than how many "
+            "lines it spans is the point: an exemption nobody has to justify is one "
+            "that grows, and line count is not what makes it dangerous."
+        )
+
+    def test_the_decision_record_states_its_own_high_water_mark(self) -> None:
+        """The count of decisions, computed rather than maintained.
+
+        The audit found it written twice -- in the header block and in
+        `Document status` -- which is one place too many, since a number in two
+        places is a number that goes stale in one of them. The header now points
+        at the section, and the section is checked here.
+
+        Gaplessness is asserted alongside it because the two failures look the
+        same from a distance: a record can state the right total and still have
+        skipped a number, and a reader citing `D19` wants that to mean one thing.
+        """
+        problems = _decision_bookkeeping(self.DECISIONS.read_text(encoding="utf-8"))
+        assert not problems, "the decision record disagrees with itself:\n  " + "\n  ".join(
+            problems
+        )
+
+    def test_the_high_water_guard_notices_a_stale_total(self) -> None:
+        """The bookkeeping check, planted against the defect it was written for.
+
+        Two plants, because the guard makes two different claims. Removing the
+        last decision's heading must make the stated total wrong -- that is C-9's
+        defect, a number left behind by the thing it counts. Renumbering a
+        heading must make the sequence non-gapless without changing the total,
+        which the first plant would not catch.
+        """
+        text = self.DECISIONS.read_text(encoding="utf-8")
+        assert not _decision_bookkeeping(text), "the record is not clean, so neither plant is valid"
+
+        numbers = sorted(int(n) for n in re.findall(r"^## D(\d+)\b", text, re.MULTILINE))
+        high = numbers[-1]
+
+        dropped = text.replace(f"## D{high} ", f"## Retired D{high} ", 1)
+        assert any("Document status" in p for p in _decision_bookkeeping(dropped)), (
+            "dropping the last decision left the stated total unchallenged"
+        )
+
+        renumbered = text.replace(f"## D{high} ", f"## D{high + 1} ", 1)
+        assert any("gap or a repeat" in p for p in _decision_bookkeeping(renumbered)), (
+            "renumbering a decision did not break gaplessness"
+        )
