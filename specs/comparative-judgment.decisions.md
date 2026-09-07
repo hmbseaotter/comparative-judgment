@@ -620,6 +620,31 @@ The cost of (A) is a list of exceptions in place of a list of targets, and that 
 
 ---
 
+## D30 — Ticks removed rather than made to mean something
+
+**Fork:** The acceptance criteria carried thirteen ticks out of sixty-seven, produced by nobody and read by nothing. Several *unticked* criteria were implemented and tested, and the 0.6.0 entry that introduced the boxes cites *"a criterion ticked against something adjacent to it"* as the defect they were added to fix. Build the verifier that would make a tick mean something, or stop claiming one?
+
+**Options considered**
+- **(A) Remove the ticks**, and say in the section what a box is worth now.
+- **(B) Build a verifier with spec anchors**, in the shape of the consuming harness's `verify_phase1.py`: each criterion names a test, a tool runs them, the ticks are computed.
+- **(C) Anchor the phase-1 criteria only** and remove the rest of the boxes.
+
+**Decision ✅** — **(A).**
+
+**Why** — (B) is the right end state and the wrong next step. Sixty-seven criteria would each need an anchor, and the anchors are the part that goes stale. The harness's verifier earns its cost because phase 1 there is *closed* and its criteria are the closing argument; here the criteria are still being written, so the machine would buy a computed answer to a question that is still moving, and every future criterion would pay for it.
+
+(C) splits the document into criteria that mean something and criteria that do not, without saying which is which where a reader meets them — the exact ambiguity a tick already had.
+
+(A) is the only option that makes the document true today, and it makes (B) cheaper later rather than harder: a list with no ticks is a list of claims, and anchoring a claim is easier than first having to work out which ticks were wrong.
+
+**Consequences / caveats** — the specification loses a signal, and gains nothing in its place. A reader asking *"is this built?"* is sent to the `**Rule**` line of the decision that introduced the criterion, which names a test. That is a worse index than a tick and a true one, which is the trade.
+
+**The 0.6.0 entry is corrected by appending rather than by rewriting.** Its claim — that the criteria *"now carry checkboxes tied to named tests"* — was false when it was written, and a changelog edited to agree with a later decision stops being a record of what was believed at the time.
+
+**Rule** — `tests/test_constraints.py::test_no_acceptance_criterion_carries_a_tick`, with `test_the_criteria_are_still_there_to_be_ticked` as its control: an empty document satisfies a no-ticks assertion exactly as a correctly unticked one does, so the remaining criteria are counted as well.
+
+---
+
 ## Not checked — as of 0.6.0 @ D26
 
 *Refreshed after an independent audit of 0.5.0 by a session that had written none of this code. Three earlier entries were retired because the audit resolved them: cut inversion has now been observed through the front end rather than only constructed in tests, the uncovered-lines list was measured rather than recalled, and the O(n²) claim was corrected below. **The most useful thing the audit produced was not a finding but a shape:** of forty-one, none was a mistake in the mathematics — the part checked hardest — and the recurring failure was a guard whose coverage was narrower than the rule it enforced, green and blind at the same time.*
@@ -643,8 +668,8 @@ The cost of (A) is a list of exceptions in place of a list of targets, and that 
 
 ## Document status
 
-Decisions **D1–D29** recorded. The most consequential is **D2**, which overturns the source design's central algorithmic choice; **D5** additionally settles a gap in a second project's specification, which must be amended to match.
+Decisions **D1–D30** recorded. The most consequential is **D2**, which overturns the source design's central algorithmic choice; **D5** additionally settles a gap in a second project's specification, which must be amended to match.
 
 Spec: `specs/comparative-judgment.md`. Build prompt: `specs/comparative-judgment.build-prompt.md` (phase 1, frozen).
 
-Any new fork encountered during the build is appended here in the same shape, and from **D9** onward each entry ends with a `**Rule**` line naming what enforces it. Numbering continues from **D30**. Both figures, and the gaplessness of the sequence between them, are asserted by `tests/test_constraints.py::test_the_decision_record_states_its_own_high_water_mark` — so this section is the maintained copy rather than a remembered one, and the header no longer keeps a second.
+Any new fork encountered during the build is appended here in the same shape, and from **D9** onward each entry ends with a `**Rule**` line naming what enforces it. Numbering continues from **D31**. Both figures, and the gaplessness of the sequence between them, are asserted by `tests/test_constraints.py::test_the_decision_record_states_its_own_high_water_mark` — so this section is the maintained copy rather than a remembered one, and the header no longer keeps a second.

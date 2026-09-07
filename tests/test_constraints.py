@@ -850,6 +850,44 @@ class TestDocumentation:
                 "so the exemption covers nothing and should be removed"
             )
 
+    def test_no_acceptance_criterion_carries_a_tick(self) -> None:
+        """C-6. A box nothing computes is a claim that decays.
+
+        Thirteen of sixty-seven were ticked and nothing produced them, so each
+        recorded what somebody believed while typing it. They were wrong in both
+        directions: several unticked criteria were implemented and tested, and
+        the 0.6.0 entry announcing the boxes cites *a criterion ticked against
+        something adjacent to it* as the very defect they were meant to fix.
+
+        D30 removed them rather than building the verifier that would make them
+        mean something. This is what keeps them gone: re-ticking one is a build
+        failure, and anyone who wants ticks back has to make them computed.
+        """
+        spec = (REPO_ROOT / "specs" / "comparative-judgment.md").read_text(encoding="utf-8")
+        ticked = [line.strip() for line in spec.splitlines() if line.startswith("- [x]")]
+        assert not ticked, (
+            "acceptance criteria carry ticks again. D30 removed them because nothing "
+            "computes them; if these are meant to be computed now, the thing that "
+            "computes them is what this test should be reading:\n  " + "\n  ".join(ticked)
+        )
+
+    def test_the_criteria_are_still_there_to_be_ticked(self) -> None:
+        """The control. An empty document satisfies the test above.
+
+        `- [x]` disappearing because the criteria disappeared reads identically
+        to `- [x]` disappearing because they were unticked, and only one of
+        those is what D30 did. So the unticked boxes are counted, and the count
+        is asserted to be a plausible number of criteria rather than merely
+        non-zero.
+        """
+        spec = (REPO_ROOT / "specs" / "comparative-judgment.md").read_text(encoding="utf-8")
+        unticked = [line for line in spec.splitlines() if line.startswith("- [ ]")]
+        assert len(unticked) >= 50, (
+            f"only {len(unticked)} acceptance criteria remain, which is too few for this "
+            "specification; the tick guard above would pass on a document that had lost "
+            "its criteria entirely"
+        )
+
     def test_the_decision_record_states_its_own_high_water_mark(self) -> None:
         """The count of decisions, computed rather than maintained.
 
