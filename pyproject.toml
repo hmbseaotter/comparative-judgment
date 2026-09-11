@@ -83,7 +83,14 @@ testpaths = ["tests"]
 # every `-k` subset a developer runs, which fails for the one reason a floor
 # should never fail: not enough of the suite ran. CI passes --cov, and a test
 # asserts that it does, so the floor is enforced where the whole suite runs.
-addopts = "-q --strict-markers"
+#
+# `-q` is deliberately not in addopts either. CI passes `-q` itself, and pytest
+# counts the flag each time it appears: addopts plus the command line is `-qq`,
+# and at that verbosity pytest prints no final summary -- so neither a CI log nor
+# a local `pytest -q` run said how many tests ran. Found when a coverage run
+# reported its floor and nothing reported the count, and a test now reads both
+# ends so the flag cannot return on either.
+addopts = "--strict-markers"
 
 [tool.coverage.run]
 source = ["src/comparative_judgment"]

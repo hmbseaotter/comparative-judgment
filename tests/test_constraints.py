@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import ast
 import re
+import shlex
 import socket
 import subprocess
 import tomllib
@@ -468,6 +469,54 @@ def _decision_bookkeeping(text: str) -> list[str]:
     return problems
 
 
+def _verbosity_of(args: Iterable[str]) -> int:
+    """The verbosity these arguments add, counted the way pytest counts it.
+
+    Each `-v` or `--verbose` is one step up and each `-q` or `--quiet` one step
+    down, bundles such as `-qq` included. Only bundles made entirely of `q` and
+    `v` are read: in one mixing in another option, whether a `q` is a flag or
+    that option's value depends on the option -- `-xq` is quiet, `-rq` is not.
+    """
+    level = 0
+    for token in args:
+        if token == "--verbose":
+            level += 1
+        elif token == "--quiet":
+            level -= 1
+        elif token.startswith("-") and not token.startswith("--"):
+            flags = token[1:]
+            if flags and set(flags) <= {"q", "v"}:
+                level += flags.count("v") - flags.count("q")
+    return level
+
+
+def _ci_pytest_invocations(workflow: str) -> list[list[str]]:
+    """The arguments each single-line `run:` step in the workflow passes to pytest."""
+    invocations: list[list[str]] = []
+    for line in workflow.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("run:") and "pytest" in stripped.split():
+            tokens = shlex.split(stripped[len("run:") :])
+            invocations.append(tokens[tokens.index("pytest") + 1 :])
+    return invocations
+
+
+def _ci_verbosity(pyproject: str, workflow: str) -> int | None:
+    """The lowest verbosity CI runs pytest at, or None when no step runs it.
+
+    `addopts` applies to every invocation, so it is added to each step's own
+    arguments, and the lowest total is the one that decides whether every log
+    carries a count.
+    """
+    options = tomllib.loads(pyproject)["tool"]["pytest"]["ini_options"]
+    raw = options.get("addopts", "")
+    addopts = shlex.split(raw) if isinstance(raw, str) else [str(item) for item in raw]
+    invocations = _ci_pytest_invocations(workflow)
+    if not invocations:
+        return None
+    return min(_verbosity_of(addopts) + _verbosity_of(args) for args in invocations)
+
+
 class TestCoreIsUIAgnostic:
     """The seam that decides whether a web adapter is a new front end or a rewrite."""
 
@@ -773,6 +822,57 @@ class TestRepositoryHygiene:
             "the workflow's test step does not ask for coverage, so fail_under is "
             "configuration nothing applies"
         )
+
+    def test_ci_logs_report_how_many_tests_ran(self) -> None:
+        """pytest has to say how many tests ran, and one flag too many silences it.
+
+        pytest adds up verbosity across `addopts` and the command line, one step
+        per flag, and its `summary_stats` returns without printing when the total
+        is below -1. `addopts` carried `-q` and the workflow's test step passes
+        `-q`, so CI ran at -2: the coverage table and its floor printed, and the
+        line saying how many tests passed never did. A local `pytest -q` did the
+        same. Found when a coverage run reported its floor and nothing reported
+        the count.
+
+        Both ends are read together, because either one brings it back: `-q`
+        restored to `addopts`, or a second `-q` in the workflow. Read: `addopts`,
+        and every single-line `run:` step that calls pytest. Not read:
+        `PYTEST_ADDOPTS`, and a multi-line `run: |` block. A workflow in which no
+        step is found fails here rather than passing over nothing.
+        """
+        pyproject = (REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8")
+        workflow = (REPO_ROOT / ".github" / "workflows" / "checks.yml").read_text(encoding="utf-8")
+        level = _ci_verbosity(pyproject, workflow)
+        assert level is not None, "no workflow step runs pytest, so there is no count to read"
+        assert level >= -1, (
+            f"CI runs pytest at verbosity {level}; below -1 pytest prints no summary "
+            "line, so the log never says how many tests ran"
+        )
+
+    def test_the_verbosity_guard_rejects_both_routes_to_a_silent_log(self) -> None:
+        """The control, planted on the real files rather than on fragments.
+
+        `shipped` restores the configuration this guard was written after, and
+        `doubled` is the other route to the same log: a clean `addopts` under a
+        test step passing `-qq`. Planted on the real text, so if either line
+        changes shape this fails and says so; a fragment written to suit the
+        parser would go on passing against a format neither file still uses. It
+        calls the function the guard calls, rather than restating the rule.
+        """
+        pyproject = (REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8")
+        workflow = (REPO_ROOT / ".github" / "workflows" / "checks.yml").read_text(encoding="utf-8")
+
+        shipped = pyproject.replace(
+            'addopts = "--strict-markers"', 'addopts = "-q --strict-markers"'
+        )
+        assert shipped != pyproject, "addopts changed shape, so nothing was planted"
+        assert _ci_verbosity(shipped, workflow) == -2
+
+        doubled = workflow.replace("pytest -q ", "pytest -qq ")
+        assert doubled != workflow, "the test step changed shape, so nothing was planted"
+        assert _ci_verbosity(pyproject, doubled) == -2
+
+        assert _ci_verbosity(pyproject, "jobs: {}") is None
 
     def test_the_pin_guard_rejects_a_floor(self) -> None:
         """The control, because a repository that is already pinned proves nothing.
