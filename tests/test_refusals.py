@@ -27,10 +27,12 @@ from comparative_judgment.core.errors import (
     RetractionError,
     StoreExistsError,
     StoreSchemaError,
+    UnknownItemError,
 )
 from comparative_judgment.core.findings import parse_findings
-from comparative_judgment.core.models import Cut, CutName, Outcome
+from comparative_judgment.core.models import Band, BandAssignment, Cut, CutName, Outcome
 from comparative_judgment.core.session import Session
+from comparative_judgment.core.severity import build_payload
 from comparative_judgment.core.store import Store
 
 NOTE = "Critical means the caller acts on a false statement about their booking."
@@ -637,3 +639,21 @@ class TestErrorsAreAllNamedRefusals:
                 if name in {"ValueError", "KeyError", "TypeError", "RuntimeError"}:
                     offenders.append(f"{path.name}:{node.lineno} raises {name}")
         assert not offenders, offenders
+
+
+class TestASeverityRowNeedsAFindingTheStoreHolds:
+    def test_a_band_for_a_finding_the_store_does_not_hold_is_refused(self, tmp_path: Path) -> None:
+        """Schema 2 writes each row's content hash and comparison counts from the store.
+
+        A finding the store does not hold has neither, so a row for it would be a
+        band with its basis missing -- the row schema 2 exists to make impossible.
+        Refused as an unknown item, not as a write failure: nothing is wrong with
+        where the file was asked to go, and a caller catching `SeverityWriteError`
+        to report a bad output path would mislabel this.
+        """
+        store = Store.create(tmp_path / "s")
+        store.put_findings(parse_findings(_doc(("P", "Q"))).admitted)
+        store.put_load_summary(())
+        stranger = BandAssignment(finding_id="ZZ", band=Band.LOW, theta=0.0)
+        with pytest.raises(UnknownItemError, match="ZZ"):
+            build_payload(assignments=(stranger,), store=store)

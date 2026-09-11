@@ -723,8 +723,74 @@ The convention makes a promise about *test* churn rather than about production s
 
 ## Document status
 
-Decisions **D1–D32** recorded. The most consequential is **D2**, which overturns the source design's central algorithmic choice; **D5** additionally settles a gap in a second project's specification, which must be amended to match.
+Decisions **D1–D33** recorded. The most consequential is **D2**, which overturns the source design's central algorithmic choice; **D5** additionally settles a gap in a second project's specification, which must be amended to match.
+
+## D33 — A severity row was a conclusion with its basis stripped off
+
+**Fork:** The consuming project asked for two things this file could not say, on the same day and
+for different reasons, and both are about a row recording a verdict without recording what stands
+behind it.
+
+**The first is D18's hash, computed and never exported.** `content_hash` has existed since the
+beginning and does real work: `load` refuses when a judged finding's text has changed, because the
+tool cannot tell a corrected typo from a rewrite. But the hash lives in the store, and the store is
+local — the harness gitignores it, correctly, since a local judgment log is not a repository
+artifact. So the *exported* file records a band and not the text it banded, and a finding edited
+after export keeps a band describing wording nobody compared.
+
+That is not a hypothetical. On 2026-09-07 a repository-wide spelling conversion in the harness
+edited three judged findings, one British spelling inside each, and **nothing
+noticed for four days**.
+The refusal fired correctly the moment somebody ran `load`, which is exactly the problem: the edits
+that cause this are cross-cutting sweeps, and a sweep is the edit where nobody is thinking about
+severity and nobody runs this tool.
+
+**The second is that ties are invisible in the output.** A tie is a judgment and this tool keeps it
+in the log, deliberately — `winner_loser()` returns `None` rather than an arbitrary order so a
+caller cannot silently treat one as decided. The fit then excludes ties, because they carry no
+information about ordering. Both are right. The consequence is that **ten appearances with eight
+ties is a band placed on two results**, and the exported row says `theta` and nothing else.
+
+The harness met that consequence head-on: placing one new finding against the cuts moved a cut
+anchor by **forty-six times the median shift across every other finding**, because that anchor was
+three wins, no losses and eight ties — undefeated on three informative comparisons, which a
+regularized fit pushes upward with only λ to restrain it. Three unrelated findings changed band.
+Nothing in the file it reads could have warned it.
+
+**Options considered.**
+
+- **(A) Export both**: `content_hash`, `appearances` and `informative` on every row, at schema 2.
+- **(B) Export the hash only**, and leave determinacy to `status`.
+- **(C) Export neither and document the store as the place to look**, which is the standing answer.
+
+**Decision: (A).**
+
+**Why not (C)** — it is what was in place, and the four-day gap is its measurement. A detector that
+only fires when somebody thinks to run it does not cover the case where nobody is thinking about
+this tool at all.
+
+**Why not (B)** — the two failures are independent and a reader cannot derive either from the other.
+A hash says the text has not moved; it says nothing about whether the band rests on two comparisons
+or ten. The harness needed both on the same afternoon.
+
+**Why the version moves.** The consuming contract says extra fields are tolerated and a missing one
+is a break, so absence is legal — and without a version bump a consumer cannot distinguish a file
+that predates these fields from a tool that never wrote them, which means any check for them would
+have to tolerate absence and would therefore assert nothing. `schema_version` is `2`.
+
+**Consequences / caveats** — `run_id` does **not** move, deriving from the log hash, the anchor set
+and the cuts rather than from the file's fields, so the byte-identity guarantee holds across the
+bump and a consumer's stored run id still resolves. `build_payload` now refuses to write a row for a
+finding the store does not hold, rather than emitting a band with an unknown basis, which is the row
+this entry exists to make impossible. **The counts describe the log at export time**: a later
+retraction changes them, which is correct and is why they are read from the store rather than passed
+in by a caller who might hold a stale view.
+
+**Rule** — enforced by test: every exported row's `content_hash` equals the store's hash for that
+finding, `appearances >= informative >= 0`, no banded row has zero appearances, and the payload
+declares `schema_version` 2.
+
 
 Spec: `specs/comparative-judgment.md`. Build prompt: `specs/comparative-judgment.build-prompt.md` (phase 1, frozen).
 
-Any new fork encountered during the build is appended here in the same shape, and from **D9** onward each entry ends with a `**Rule**` line naming what enforces it. Numbering continues from **D33**. Both figures, and the gaplessness of the sequence between them, are asserted by `tests/test_constraints.py::test_the_decision_record_states_its_own_high_water_mark` — so this section is the maintained copy rather than a remembered one, and the header no longer keeps a second.
+Any new fork encountered during the build is appended here in the same shape, and from **D9** onward each entry ends with a `**Rule**` line naming what enforces it. Numbering continues from **D34**. Both figures, and the gaplessness of the sequence between them, are asserted by `tests/test_constraints.py::test_the_decision_record_states_its_own_high_water_mark` — so this section is the maintained copy rather than a remembered one, and the header no longer keeps a second.

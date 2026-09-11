@@ -447,6 +447,31 @@ class TestFullFlow:
         assert payload["comparison_log_hash"]
         assert payload["anchor_set_version"] == "1"
 
+        # Schema 2: every row says what it scored and how well determined it is.
+        #
+        # Both exist because a band on its own is a conclusion with its basis
+        # stripped off. `content_hash` is the text the rater saw, so a finding
+        # edited after export stops matching and the consumer can say so without
+        # running the producing tool. `appearances` and `informative` are the
+        # evidence behind the placement, and they differ: a tie is a judgment
+        # the fit excludes, so ten appearances with eight ties is a band placed
+        # on two results.
+        from comparative_judgment.core.store import Store
+
+        assert payload["schema_version"] == "2"
+        store_findings = {f.id: f for f in Store.open(Path(store)).findings()}
+        for row in payload["severities"]:
+            assert row["content_hash"] == store_findings[row["id"]].content_hash, (
+                f"{row['id']} carries a hash that is not the text the store judged"
+            )
+            assert row["appearances"] >= row["informative"] >= 0, (
+                f"{row['id']} reports more decided comparisons than comparisons"
+            )
+            assert row["appearances"] > 0, (
+                f"{row['id']} is banded on no comparisons at all, which `unplaced` exists to "
+                "report instead"
+            )
+
     def test_export_is_byte_identical_across_runs(self, workspace: Path) -> None:
         ranked = self._bootstrap(workspace)
         store = _store(workspace)
