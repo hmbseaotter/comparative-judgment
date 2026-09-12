@@ -14,7 +14,7 @@ import shlex
 import socket
 import subprocess
 import tomllib
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from pathlib import Path
 
 import pytest
@@ -137,6 +137,22 @@ def _unpinned(declared: Iterable[str]) -> list[str]:
         requirement
         for requirement, specifier in specifiers
         if "==" not in specifier or ">" in specifier or "<" in specifier or "*" in specifier
+    ]
+
+
+def _unpinned_locked(packages: Iterable[Mapping[str, object]]) -> list[str]:
+    """The lockfile entries whose version is missing or carries a range mark.
+
+    A lockfile's job is to say exactly what installs, so an entry with no version
+    is flagged rather than skipped, and so is a version carrying a `>`, a `<`, a
+    `*`, a `^` or a `~`. Each mark is its own clause of the rule, and the control
+    plants a version for each.
+    """
+    return [
+        f"{package.get('name')}: {package.get('version')!r}"
+        for package in packages
+        if not isinstance(package.get("version"), str)
+        or any(mark in str(package.get("version")) for mark in (">", "<", "*", "^", "~"))
     ]
 
 
@@ -943,13 +959,30 @@ class TestRepositoryHygiene:
         """
         packages = _locked_packages()
         assert packages, "uv.lock parsed to nothing"
-        unpinned = [
-            f"{package['name']}: {package.get('version')!r}"
-            for package in packages
-            if not isinstance(package.get("version"), str)
-            or any(op in str(package["version"]) for op in (">", "<", "*", "^", "~"))
-        ]
+        unpinned = _unpinned_locked(packages)
         assert not unpinned, f"expressed as a floor or range rather than a pin: {unpinned}"
+
+    def test_the_lockfile_guard_rejects_a_range(self) -> None:
+        """The control, because a lockfile that is already exact proves nothing.
+
+        It calls `_unpinned_locked`, the rule the guard applies. One planted
+        version per range mark, each carrying that mark and no other, because a
+        version carrying two survives the deletion of either. An entry with no
+        version is planted because the rule reads it as unpinned rather than
+        skipping it, and an exact version so a rule that flags everything fails
+        here too.
+        """
+        planted = ((">", ">=2.0"), ("<", "<3"), ("*", "2.*"), ("^", "^2.0"), ("~", "~=2.5"))
+        for mark, version in planted:
+            assert _unpinned_locked([{"name": "numpy", "version": version}]) == [
+                f"numpy: {version!r}"
+            ], f"a version carrying only `{mark}` was not flagged"
+        assert _unpinned_locked([{"name": "numpy"}]) == ["numpy: None"], (
+            "an entry with no version was not flagged"
+        )
+        assert _unpinned_locked([{"name": "numpy", "version": "2.5.2"}]) == [], (
+            "an exact version was flagged"
+        )
 
     def test_license_exists_and_is_apache(self) -> None:
         # The US form is a builtin and the form this repository converted away
