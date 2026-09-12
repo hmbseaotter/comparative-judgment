@@ -120,16 +120,23 @@ def _locked_packages() -> list[dict[str, object]]:
 def _unpinned(declared: Iterable[str]) -> list[str]:
     """The declared requirements that are not an exact pin.
 
-    Three clauses, and each catches a requirement neither of the others does: a
+    Only the version specifier is judged. An environment marker follows a `;`
+    and makes comparisons of its own -- `python_version < "3.13"` -- which say
+    where a requirement applies rather than which versions satisfy it, so the
+    text from the `;` on is set aside before any clause looks.
+
+    Four clauses, and each catches a requirement none of the others does: a
     compatible release such as `~=2.5` has no `==`, a pin with a floor bolted on
-    has `==` and a `>`, and a pin with a ceiling bolted on has `==` and a `<`.
-    The guard and its control both call this, so the rule is stated once and the
-    control proves the statement the guard applies.
+    has `==` and a `>`, a pin with a ceiling bolted on has `==` and a `<`, and a
+    prefix match such as `==2.*` has `==`, no `>` and no `<`, and is a range all
+    the same. The guard and its control both call this, so the rule is stated
+    once and the control proves the statement the guard applies.
     """
+    specifiers = ((requirement, requirement.split(";", 1)[0]) for requirement in declared)
     return [
         requirement
-        for requirement in declared
-        if "==" not in requirement or ">" in requirement or "<" in requirement
+        for requirement, specifier in specifiers
+        if "==" not in specifier or ">" in specifier or "<" in specifier or "*" in specifier
     ]
 
 
@@ -900,6 +907,10 @@ class TestRepositoryHygiene:
         and stays as the plainest statement of what the guard is for, not as proof
         of any one clause. The exact pin is planted so a rule that flags
         everything fails here too.
+
+        A marker is planted both ways. An exact pin whose marker compares a
+        version must pass, and a floor behind a marker must still fail, so neither
+        judging the marker nor skipping every marked requirement survives here.
         """
         assert _unpinned(["numpy>=2.0"]) == ["numpy>=2.0"]
         assert _unpinned(["numpy~=2.5"]) == ["numpy~=2.5"], (
@@ -911,7 +922,15 @@ class TestRepositoryHygiene:
         assert _unpinned(["numpy==2.5.2,<3"]) == ["numpy==2.5.2,<3"], (
             "a pin with a ceiling attached; only the `<` flags it"
         )
+        assert _unpinned(["numpy==2.*"]) == ["numpy==2.*"], (
+            "a prefix match is a range with no `>` or `<` in it; only the `*` flags it"
+        )
         assert _unpinned(["numpy==2.5.2"]) == [], "an exact pin was flagged"
+
+        marked_pin = 'pytest==9.1.1; python_version < "3.13"'
+        marked_floor = 'numpy>=2.0; python_version < "3.13"'
+        assert _unpinned([marked_pin]) == [], "an exact pin was flagged for its marker"
+        assert _unpinned([marked_floor]) == [marked_floor], "a floor escaped behind a marker"
 
     def test_lockfile_pins_exact_versions(self) -> None:
         """Pins, not floors -- the defect this project inherited as a lesson.
