@@ -117,6 +117,22 @@ def _locked_packages() -> list[dict[str, object]]:
     return [p for p in packages if isinstance(p, dict)]
 
 
+def _unpinned(declared: Iterable[str]) -> list[str]:
+    """The declared requirements that are not an exact pin.
+
+    Three clauses, and each catches a requirement neither of the others does: a
+    compatible release such as `~=2.5` has no `==`, a pin with a floor bolted on
+    has `==` and a `>`, and a pin with a ceiling bolted on has `==` and a `<`.
+    The guard and its control both call this, so the rule is stated once and the
+    control proves the statement the guard applies.
+    """
+    return [
+        requirement
+        for requirement in declared
+        if "==" not in requirement or ">" in requirement or "<" in requirement
+    ]
+
+
 def _private_reaches(source: str) -> list[str]:
     """Reads of another object's private attribute, in one module's source.
 
@@ -791,11 +807,7 @@ class TestRepositoryHygiene:
             declared.extend(str(item) for item in group)
 
         assert declared, "no dependencies declared at all"
-        unpinned = [
-            requirement
-            for requirement in declared
-            if "==" not in requirement or ">" in requirement or "<" in requirement
-        ]
+        unpinned = _unpinned(declared)
         assert not unpinned, f"expressed as a floor or a range rather than a pin: {unpinned}"
 
     def test_ci_runs_the_coverage_gate_the_configuration_declares(self) -> None:
@@ -877,23 +889,29 @@ class TestRepositoryHygiene:
     def test_the_pin_guard_rejects_a_floor(self) -> None:
         """The control, because a repository that is already pinned proves nothing.
 
-        Both shapes are planted: a bare floor, and the subtler one -- a pin with
-        a range bolted on, which contains `==` and would satisfy a check that
-        only looked for that.
+        It calls `_unpinned`, the rule the guard applies. It used to restate that
+        rule in a nested function, and a restated copy proves only itself: with
+        the `<` clause deleted from the guard, the guard and this control both
+        stayed green.
+
+        One planted requirement per clause, each one only that clause flags,
+        because a requirement two clauses both flag survives the deletion of
+        either. The bare floor is that kind -- it has no `==` and it has a `>` --
+        and stays as the plainest statement of what the guard is for, not as proof
+        of any one clause. The exact pin is planted so a rule that flags
+        everything fails here too.
         """
-
-        def unpinned(declared: list[str]) -> list[str]:
-            return [
-                requirement
-                for requirement in declared
-                if "==" not in requirement or ">" in requirement or "<" in requirement
-            ]
-
-        assert unpinned(["numpy>=2.0"]) == ["numpy>=2.0"]
-        assert unpinned(["numpy==2.5.2,<3"]) == ["numpy==2.5.2,<3"], (
-            "a pin with a range attached passes a check that only looks for =="
+        assert _unpinned(["numpy>=2.0"]) == ["numpy>=2.0"]
+        assert _unpinned(["numpy~=2.5"]) == ["numpy~=2.5"], (
+            "a compatible release has no `==`, `>` or `<`; only the missing `==` flags it"
         )
-        assert unpinned(["numpy==2.5.2"]) == []
+        assert _unpinned(["numpy==2.5.2,>=2"]) == ["numpy==2.5.2,>=2"], (
+            "a pin with a floor attached; only the `>` flags it"
+        )
+        assert _unpinned(["numpy==2.5.2,<3"]) == ["numpy==2.5.2,<3"], (
+            "a pin with a ceiling attached; only the `<` flags it"
+        )
+        assert _unpinned(["numpy==2.5.2"]) == [], "an exact pin was flagged"
 
     def test_lockfile_pins_exact_versions(self) -> None:
         """Pins, not floors -- the defect this project inherited as a lesson.
