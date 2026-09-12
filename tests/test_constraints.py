@@ -9,15 +9,20 @@ make a documented guarantee untrue while everything still passed.
 from __future__ import annotations
 
 import ast
+import os
 import re
 import shlex
+import shutil
 import socket
 import subprocess
 import tomllib
 from collections.abc import Iterable, Mapping
+from functools import cache
 from pathlib import Path
+from typing import NamedTuple
 
 import pytest
+import yaml
 
 from comparative_judgment.cli import main
 from comparative_judgment.core.models import Outcome
@@ -554,6 +559,220 @@ def _ci_verbosity(pyproject: str, workflow: str) -> int | None:
     if not invocations:
         return None
     return min(_verbosity_of(addopts) + _verbosity_of(args) for args in invocations)
+
+
+def _read_workflow() -> str:
+    return (REPO_ROOT / ".github" / "workflows" / "checks.yml").read_text(encoding="utf-8")
+
+
+def _notify_steps(workflow: str) -> list[dict[str, object]]:
+    """The steps of the job that asks the harness to run its interface scanner."""
+    steps = yaml.safe_load(workflow)["jobs"]["notify-harness"]["steps"]
+    assert isinstance(steps, list), "the notify-harness job has no step list"
+    return [step for step in steps if isinstance(step, dict)]
+
+
+def _spec_step(workflow: str) -> dict[str, object]:
+    """The step that decides whether a push touched a specification."""
+    matches = [step for step in _notify_steps(workflow) if step.get("id") == "specs"]
+    assert len(matches) == 1, f"{len(matches)} notify-harness steps carry the id `specs`"
+    return matches[0]
+
+
+def _spec_script(workflow: str) -> str:
+    """The shell the spec step runs, exactly as the runner receives it."""
+    script = _spec_step(workflow).get("run")
+    assert isinstance(script, str), "the spec step runs no script"
+    return script
+
+
+#: What the runner must hand the narrowing: the history comes from the checkout
+#: and the range from the step's env. The case test sets both itself, so neither
+#: is visible to it.
+_NARROWING_INPUTS: dict[str, object] = {
+    "fetch-depth": 0,
+    "EVENT_NAME": "${{ github.event_name }}",
+    "BEFORE": "${{ github.event.before }}",
+    "AFTER": "${{ github.sha }}",
+}
+
+
+def _narrowing_inputs(workflow: str) -> dict[str, object]:
+    """The history the notify-harness checkout fetches, and the env its narrowing reads."""
+    checkouts = [
+        step
+        for step in _notify_steps(workflow)
+        if str(step.get("uses", "")).startswith("actions/checkout")
+    ]
+    assert len(checkouts) == 1, f"{len(checkouts)} checkout steps in notify-harness"
+    given = checkouts[0].get("with")
+    env = _spec_step(workflow).get("env")
+    return {
+        "fetch-depth": given.get("fetch-depth") if isinstance(given, dict) else None,
+        **{
+            name: env.get(name) if isinstance(env, dict) else None
+            for name in ("EVENT_NAME", "BEFORE", "AFTER")
+        },
+    }
+
+
+@cache
+def _bash() -> str:
+    """A bash that starts, to run the workflow's own shell with.
+
+    `shutil.which("bash")` is not enough on Windows: from PowerShell it finds the
+    WindowsApps `bash.exe` stub, which fails to launch at all. Git for Windows
+    ships a bash beside `git`, which the spelling scan already requires, so the
+    search goes there next. It fails rather than skips when nothing starts,
+    because a test that skips where nobody looks is a test that passes there.
+    """
+    candidates = [shutil.which("bash")]
+    git = shutil.which("git")
+    if git:
+        for ancestor in list(Path(git).resolve().parents)[:3]:
+            candidates += [
+                str(ancestor / "bin" / "bash.exe"),
+                str(ancestor / "usr" / "bin" / "bash.exe"),
+            ]
+    for candidate in candidates:
+        if candidate is None:
+            continue
+        try:
+            started = subprocess.run([candidate, "-c", "true"], capture_output=True, timeout=30)
+        except (OSError, subprocess.TimeoutExpired):
+            continue
+        if started.returncode == 0:
+            return candidate
+    raise AssertionError(
+        "no bash that starts was found on PATH or beside git, and the dispatch "
+        "narrowing is a bash script that has to be run to be tested"
+    )
+
+
+def _fixture_env(root: Path) -> dict[str, str]:
+    """An environment in which git reads no configuration but what a fixture sets.
+
+    Global or system config can sign commits, change how `git diff` prints a
+    path, or convert line endings, and none of that should decide what a fixture
+    repository holds or what the narrowing reads from it.
+    """
+    empty = root / "empty.gitconfig"
+    empty.write_bytes(b"")
+    return {
+        **os.environ,
+        "GIT_CONFIG_GLOBAL": str(empty),
+        "GIT_CONFIG_NOSYSTEM": "1",
+        "GIT_AUTHOR_NAME": "fixture",
+        "GIT_AUTHOR_EMAIL": "fixture@example.invalid",
+        "GIT_COMMITTER_NAME": "fixture",
+        "GIT_COMMITTER_EMAIL": "fixture@example.invalid",
+    }
+
+
+class _DispatchHistory(NamedTuple):
+    """A repository shaped like the push that exposed the tip-only diff.
+
+    `base` is the tip before the push. `spec_edit` is the push's first commit,
+    which changes a specification, and `tip` its last, which changes only a
+    test. `sideline` is a tip on another line of history holding the same
+    specification as `tip`, so a diff between the two finds no spec change and
+    only the ancestry guard can tell it is not part of the push.
+    """
+
+    repo: Path
+    base: str
+    spec_edit: str
+    tip: str
+    sideline: str
+
+
+def _dispatch_history(root: Path) -> _DispatchHistory:
+    """Build the repository the narrowing cases run in.
+
+    Commits are made with `write-tree` and `commit-tree`, which run no hooks, so
+    nothing the developer has installed acts on a fixture.
+    """
+    repo = root / "repo"
+    repo.mkdir()
+    env = _fixture_env(root)
+
+    def git(*args: str) -> str:
+        done = subprocess.run(
+            ["git", *args], cwd=repo, env=env, capture_output=True, text=True, check=True
+        )
+        return done.stdout.strip()
+
+    def commit(parent: str | None, files: dict[str, str]) -> str:
+        if parent is None:
+            git("read-tree", "--empty")
+        else:
+            git("read-tree", parent)
+        for name, text in files.items():
+            path = repo / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(text.encode("utf-8"))
+        git("add", "--", *files)
+        tree = git("write-tree")
+        parents = [] if parent is None else ["-p", parent]
+        return git("commit-tree", tree, *parents, "-m", "fixture")
+
+    git("init", "--quiet")
+    base = commit(None, {"README.md": "base\n", "specs/comparative-judgment.md": "one\n"})
+    spec_edit = commit(base, {"specs/comparative-judgment.md": "two\n"})
+    tip = commit(spec_edit, {"tests/test_example.py": "tip\n"})
+    sideline = commit(
+        base, {"specs/comparative-judgment.md": "two\n", "tests/test_other.py": "side\n"}
+    )
+    git("update-ref", "HEAD", tip)
+    return _DispatchHistory(repo, base, spec_edit, tip, sideline)
+
+
+def _spec_verdict(script: str, history: _DispatchHistory, event: str, before: str) -> str:
+    """The `changed=` value the script writes for a push from `before` to the tip."""
+    root = history.repo.parent
+    body = root / "narrowing.sh"
+    body.write_bytes(script.encode("utf-8"))
+    output = root / "github_output"
+    output.write_bytes(b"")
+    env = {
+        **_fixture_env(root),
+        "EVENT_NAME": event,
+        "BEFORE": before,
+        "AFTER": history.tip,
+        "GITHUB_OUTPUT": output.as_posix(),
+    }
+    ran = subprocess.run(
+        [_bash(), body.as_posix()],
+        cwd=history.repo,
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    assert ran.returncode == 0, f"the narrowing script failed:\n{ran.stderr}"
+    written = [
+        line
+        for line in output.read_text(encoding="utf-8").splitlines()
+        if line.startswith("changed=")
+    ]
+    assert len(written) == 1, f"the script wrote {written!r} to GITHUB_OUTPUT"
+    return written[0].removeprefix("changed=")
+
+
+def _narrowing_cases(history: _DispatchHistory) -> list[tuple[str, str, str, str]]:
+    """Pushes the script must get right, each decided by a single branch of it."""
+    return [
+        ("a spec change in the push's first commit and not its last", "push", history.base, "true"),
+        ("a push whose whole range changed no spec", "push", history.spec_edit, "false"),
+        ("a new branch, whose previous tip is all zeros", "push", "0" * 40, "true"),
+        ("a force-push, whose previous tip is not an ancestor", "push", history.sideline, "true"),
+        (
+            "a manual run over a range that changed no spec",
+            "workflow_dispatch",
+            history.spec_edit,
+            "true",
+        ),
+    ]
 
 
 class TestCoreIsUIAgnostic:
@@ -1202,6 +1421,98 @@ class TestDocumentation:
             assert fragment in workflow, (
                 f"{why}, so a spec change here can break the shared findings interface "
                 "and nothing will say so until the harness next builds"
+            )
+
+    def test_the_dispatch_narrowing_reads_every_commit_in_the_push(self, tmp_path: Path) -> None:
+        """The narrowing decides on the whole push, not on its last commit.
+
+        It diffed `HEAD^ HEAD`, and a push is one run for every commit it
+        carries, so a spec change in any commit but the last was never seen. On
+        2026-09-11 the push `515476a..35910c9` changed both specifications in its
+        first commit and only tests in its last, and the run skipped asking the
+        harness; the harness's own push the same day is the only reason that
+        change was checked (D31, second amendment).
+
+        This runs the step's own script, taken from the parsed workflow, against
+        a repository built for the cases -- so what is asserted is what the
+        runner executes, not a description of it.
+        """
+        history = _dispatch_history(tmp_path)
+        script = _spec_script(_read_workflow())
+        for label, event, before, expected in _narrowing_cases(history):
+            assert _spec_verdict(script, history, event, before) == expected, label
+
+    def test_the_narrowing_cases_notice_each_way_the_script_can_break(self, tmp_path: Path) -> None:
+        """The control, planted into the step's own script.
+
+        One plant per branch, each checked on a case only that branch decides:
+        the tip-only diff this was written after, the ancestry guard gone, a
+        manual run that no longer skips the narrowing, and a match that accepts
+        any path. A plant that does not change the script fails here instead of
+        proving nothing.
+        """
+        history = _dispatch_history(tmp_path)
+        script = _spec_script(_read_workflow())
+        plants = (
+            (
+                'git diff --name-only "$BEFORE" "$AFTER"',
+                "git diff --name-only HEAD^ HEAD",
+                "push",
+                history.base,
+                "false",
+            ),
+            (
+                '! git merge-base --is-ancestor "$BEFORE" "$AFTER"',
+                "false",
+                "push",
+                history.sideline,
+                "false",
+            ),
+            (
+                '[ "$EVENT_NAME" = "workflow_dispatch" ]',
+                "false",
+                "workflow_dispatch",
+                history.spec_edit,
+                "false",
+            ),
+            ("grep -q '^specs/'", "grep -q ''", "push", history.spec_edit, "true"),
+        )
+        for find, replace, event, before, broken in plants:
+            assert script.count(find) == 1, f"{find!r} is not in the script exactly once"
+            verdict = _spec_verdict(script.replace(find, replace), history, event, before)
+            assert verdict == broken, (
+                f"with {replace!r} planted the case came back {verdict!r}, not {broken!r}"
+            )
+
+    def test_the_narrowing_is_handed_the_push_and_the_history_to_read_it(self) -> None:
+        """What the runner gives the script, which the case test cannot see.
+
+        That test sets `BEFORE` and `AFTER` itself, in a repository that holds all
+        of its history. On the runner both arrive through the step's `env`, and
+        the history through the checkout: at the `fetch-depth: 2` this job had,
+        the previous tip of any push of more than one commit is not in the clone,
+        the ancestry guard cannot find it, and every such push asks the harness
+        -- safe, and the narrowing silently gone.
+        """
+        assert _narrowing_inputs(_read_workflow()) == _NARROWING_INPUTS
+
+    def test_the_narrowing_input_check_notices_a_shallow_clone_and_a_wrong_range(self) -> None:
+        """The control, planted on the real workflow text.
+
+        The unplanted workflow is checked first: against a baseline that already
+        differs, every plant would compare unequal and prove nothing.
+        """
+        workflow = _read_workflow()
+        assert _narrowing_inputs(workflow) == _NARROWING_INPUTS, (
+            "the workflow already differs from what the narrowing needs, so no plant can be seen"
+        )
+        for find, replace in (
+            ("fetch-depth: 0", "fetch-depth: 2"),
+            ("BEFORE: ${{ github.event.before }}", "BEFORE: ${{ github.event.after }}"),
+        ):
+            assert workflow.count(find) == 1, f"{find!r} is not in the workflow exactly once"
+            assert _narrowing_inputs(workflow.replace(find, replace)) != _NARROWING_INPUTS, (
+                f"planting {replace!r} left the inputs unchanged"
             )
 
     def test_every_secret_the_workflow_reads_is_documented(self) -> None:

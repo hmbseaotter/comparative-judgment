@@ -86,8 +86,10 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
-          # Two commits, because the step below asks what this push changed.
-          fetch-depth: 2
+          # The whole history, because the step below diffs everything this push
+          # carried, and a push of more than one commit reaches past the two
+          # commits this used to fetch (D31, second amendment).
+          fetch-depth: 0
 
       - name: Did this push touch a spec?
         id: specs
@@ -95,12 +97,29 @@ jobs:
         # code-only push would be asking for a run whose answer cannot have
         # changed. Narrow on purpose: a trigger that fires on everything is one
         # whose failures stop being read.
+        #
+        # Over the whole push, BEFORE to AFTER, because one run serves every
+        # commit a push carries: diffing only the tip let a spec change in an
+        # earlier commit through without asking. Where that range cannot be
+        # read -- a new branch, a force-push, a previous tip this checkout does
+        # not hold -- it asks anyway, because an unneeded scanner run costs one
+        # harness build and a skipped one costs the check. The values arrive
+        # through env rather than inline, so this script is the same text a
+        # test can run.
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BEFORE: ${{ github.event.before }}
+          AFTER: ${{ github.sha }}
         run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
             echo "A manual run is a deliberate test of the dispatch, so it skips"
             echo "the narrowing below and asks the harness regardless."
             echo "changed=true" >> "$GITHUB_OUTPUT"
-          elif git diff --name-only HEAD^ HEAD | grep -q '^specs/'; then
+          elif ! git merge-base --is-ancestor "$BEFORE" "$AFTER" 2>/dev/null; then
+            echo "The previous tip is not an ancestor of this one, so what the push"
+            echo "changed cannot be read, and the harness is asked regardless."
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          elif git diff --name-only "$BEFORE" "$AFTER" | grep -q '^specs/'; then
             echo "changed=true" >> "$GITHUB_OUTPUT"
           else
             echo "changed=false" >> "$GITHUB_OUTPUT"

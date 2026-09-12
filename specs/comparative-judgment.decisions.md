@@ -654,6 +654,17 @@ The cost of (A) is a list of exceptions in place of a list of targets, and that 
 > run now reaches the job and skips the narrowing, and a refused dispatch fails loudly rather
 > than being read out of `gh`'s exit code by whoever is looking.
 
+> **Amended again, 2026-09-11.** Those Consequences were also untrue of any push of more than
+> one commit. The narrowing diffed `HEAD^ HEAD` — the push's *last* commit — while a push is one
+> run for every commit it carries. The push `515476a..35910c9` changed both specifications in its
+> first commit, `d263121`, and only tests in its last, and the run skipped asking the harness; the
+> harness's own push the same day ran the scanner anyway, which is the only reason that change
+> was checked. The narrowing now diffs the whole push, and asks regardless wherever that range
+> cannot be read — a new branch, a force-push, history the checkout does not hold. The Rule's test
+> still asserts only the wiring. What it never covered, the narrowing's decision, is now run:
+> `test_the_dispatch_narrowing_reads_every_commit_in_the_push` executes the step's own script
+> against a repository built for each case.
+
 **Fork:** D15 built a scanner comparing this specification against the consuming harness's, and put it in the harness, where it runs in the harness's CI. So an edit *here* that breaks the shared findings interface passes here, and goes on passing until that repository happens to build. D15's Rule named the gap and left it: *"judgment, not checkable until it is wired into a hook."* Wire it — and if so, from which side?
 
 **Options considered**
