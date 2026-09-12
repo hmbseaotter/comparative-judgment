@@ -665,6 +665,16 @@ The cost of (A) is a list of exceptions in place of a list of targets, and that 
 > `test_the_dispatch_narrowing_reads_every_commit_in_the_push` executes the step's own script
 > against a repository built for each case.
 
+> **Armed, 2026-09-11.** The Consequences below open with *"the dispatch is not armed yet"*, and
+> it is armed now: `HARNESS_DISPATCH_TOKEN` exists and can start the harness's workflow. The push
+> of `fc1f0c3` reached the dispatch step, run `34667421781` printed *"Asked the harness to run its
+> interface scanner."*, and the harness began a dispatched run, `34667450215`, a second before that
+> line was logged; its interface check passed against the specification just pushed. That is the
+> one thing the Rule says is not checkable from here — whether a dispatch succeeds — observed in
+> CI rather than asserted by a test. The token is fine-grained and expires: the README asks whoever
+> makes it to write the date down, and on that day the step fails the build and names the permission
+> it needs. A secret that is deleted rather than expired still only warns.
+
 **Fork:** D15 built a scanner comparing this specification against the consuming harness's, and put it in the harness, where it runs in the harness's CI. So an edit *here* that breaks the shared findings interface passes here, and goes on passing until that repository happens to build. D15's Rule named the gap and left it: *"judgment, not checkable until it is wired into a hook."* Wire it — and if so, from which side?
 
 **Options considered**
