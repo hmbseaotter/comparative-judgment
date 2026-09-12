@@ -289,6 +289,33 @@ class BandAssignment:
 
 
 @dataclass(frozen=True, slots=True)
+class CutSeparation:
+    """How far apart a cut's anchors sit on the current fit, and what lies between them.
+
+    A cut is drawn between two findings the rater judged to be neighbors, and its
+    threshold is their midpoint. A refit can move the pair apart, and the findings
+    that come to lie between them are then banded by that midpoint rather than by
+    any judgment against the boundary -- which is how placing one finding silently
+    re-banded three others in the consuming harness.
+
+    **Reported, never refused** (D34). An inverted pair is refused because the
+    boundary no longer means anything; a separated one still means something, and
+    how far apart is too far is a judgment: one finding between anchors is ordinary
+    drift and seventeen is not, and a line drawn between those would be a threshold
+    nobody chose. So every cut states its gap and names what lies between, and the
+    rater decides.
+    """
+
+    name: CutName
+    above_id: str
+    below_id: str
+    #: The upper anchor's scale value minus the lower one's, on the fit reported.
+    gap: float
+    #: Banded findings strictly between the two anchors, most severe first.
+    between: tuple[str, ...]
+
+
+@dataclass(frozen=True, slots=True)
 class PairForReview:
     """What a front end needs to show one comparison.
 
@@ -341,3 +368,8 @@ class Progress:
     #: the batch is done. Without it a front end cannot tell the two apart, and
     #: the honest-looking answer is the wrong one.
     blocked_reason: str = ""
+    #: Each cut's gap and the findings strictly between its anchors, once cuts
+    #: exist and none is blocked (D34). Empty rather than partial while a cut is
+    #: inverted or names a finding the fit does not hold: `blocked_reason` names
+    #: that, and a gap across a broken boundary would describe nothing.
+    separation: tuple[CutSeparation, ...] = field(default_factory=tuple)

@@ -458,7 +458,7 @@ class TestFullFlow:
         # on two results.
         from comparative_judgment.core.store import Store
 
-        assert payload["schema_version"] == "2"
+        assert payload["schema_version"] == "3"
         store_findings = {f.id: f for f in Store.open(Path(store)).findings()}
         for row in payload["severities"]:
             assert row["content_hash"] == store_findings[row["id"]].content_hash, (
@@ -471,6 +471,24 @@ class TestFullFlow:
                 f"{row['id']} is banded on no comparisons at all, which `unplaced` exists to "
                 "report instead"
             )
+
+        # Schema 3: every cut's anchors, gap and the findings between them (D34),
+        # computed from the rows the file exports, so a consumer can re-derive each
+        # between-set from the file alone. Checked against `separation` over the
+        # exported rows rather than against a restatement of the rule.
+        from comparative_judgment.core.bands import separation
+        from comparative_judgment.core.models import Band, BandAssignment
+
+        exported = tuple(
+            BandAssignment(finding_id=row["id"], band=Band(row["severity"]), theta=row["theta"])
+            for row in payload["severities"]
+        )
+        expected = separation(Store.open(Path(store)).cuts(), exported)
+        assert [
+            (cut["name"], cut["above_id"], cut["below_id"], cut["gap"], tuple(cut["between"]))
+            for cut in payload["cuts"]
+        ] == [(r.name.value, r.above_id, r.below_id, r.gap, r.between) for r in expected]
+        assert "cut separation" in out, "`bands` printed no cut separation"
 
     def test_export_is_byte_identical_across_runs(self, workspace: Path) -> None:
         ranked = self._bootstrap(workspace)

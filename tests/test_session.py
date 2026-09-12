@@ -414,3 +414,33 @@ class TestPlacementMode:
 
         placed = {a.finding_id for a in session.place().assignments}
         assert "F-NEW" in placed
+
+    def test_a_cut_spanning_a_finding_reports_it_in_placement_and_progress(
+        self, tmp_path: Path
+    ) -> None:
+        """D34 through the session: a boundary drawn across a finding names it, refusing nothing.
+
+        The critical_high cut is drawn from the first-ranked finding to the third,
+        so the second lies between its anchors on this fit. Compared with
+        `separation` over the placement's own assignments rather than with a
+        restatement of the rule, and progress must carry the same report.
+        """
+        from comparative_judgment.core.bands import separation
+
+        session = self._bootstrapped(tmp_path)
+        ranked = [e.finding_id for e in session._fit().ranked()]
+        session._store.put_cuts(
+            [
+                Cut(CutName.CRITICAL_HIGH, ranked[0], ranked[2]),
+                Cut(CutName.HIGH_MEDIUM, ranked[3], ranked[4]),
+                Cut(CutName.MEDIUM_LOW, ranked[4], ranked[5]),
+            ]
+        )
+        session._invalidate()
+
+        placement = session.place()
+        assert placement.separation == separation(session.cuts(), placement.assignments)
+        assert ranked[1] in placement.separation[0].between, (
+            "the finding ranked between the critical_high anchors is not reported between them"
+        )
+        assert session.progress().separation == placement.separation

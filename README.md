@@ -88,14 +88,28 @@ The severity file names the run it came from, so a value can always be traced ba
 
 ```json
 {
-  "schema_version": "1",
+  "schema_version": "3",
   "anchor_set_version": "1",
   "comparison_log_hash": "01ab8a59dbd7a002…",
   "run_id": "4f2c9a10be77d3e5",
   "calibration": {
     "critical_high": "Critical means the caller acts on a false statement about their booking."
   },
-  "severities": [{ "id": "F-01", "severity": "critical", "theta": 2.14 }],
+  "cuts": [
+    { "name": "critical_high", "above_id": "F-01", "below_id": "F-02", "gap": 0.61, "between": [] },
+    { "name": "high_medium", "above_id": "F-02", "below_id": "F-03", "gap": 1.12, "between": [] },
+    { "name": "medium_low", "above_id": "F-03", "below_id": "F-04", "gap": 0.95, "between": [] }
+  ],
+  "severities": [
+    {
+      "id": "F-01",
+      "severity": "critical",
+      "theta": 2.14,
+      "content_hash": "9b1f…",
+      "appearances": 10,
+      "informative": 8
+    }
+  ],
   "unplaced": []
 }
 ```
@@ -110,6 +124,13 @@ them would report the prior as though it were a judgment. For the same reason, a
 refused outright when the findings you judged fall into groups with no comparison between them —
 Bradley-Terry estimates *differences*, so a boundary across that gap separates items on the strength
 of the prior rather than of anything you decided.
+
+`cuts` says how each boundary sits on the fit the file came from: its two anchors, the gap between
+them, and any banded finding that has come to lie strictly between them. A cut is drawn between
+neighbors, and a later refit can move them apart; the findings that end up inside are banded by the
+midpoint rather than by anything you judged against that boundary. The tool reports that and refuses
+nothing for it (an inverted cut is refused, a widened one is yours to judge), and the list is
+computed from the rows in the same file, so a consumer can check it from `theta` alone.
 
 ---
 

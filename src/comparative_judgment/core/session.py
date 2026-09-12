@@ -44,6 +44,7 @@ from comparative_judgment.core.models import (
     Comparison,
     Cut,
     CutName,
+    CutSeparation,
     Estimate,
     Finding,
     Outcome,
@@ -73,6 +74,10 @@ class Placement:
     assignments: tuple[BandAssignment, ...]
     unplaced: tuple[str, ...]
     thresholds: tuple[float, ...]
+    #: Each cut's gap and the findings between its anchors on the fit that banded
+    #: them (D34): how a reader tells a band drawn between neighbors from one
+    #: drawn across a widened gap.
+    separation: tuple[CutSeparation, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -305,6 +310,7 @@ class Session:
         unplaced = self._unplaced(estimates, cuts)
         blocked = self._blocked_reason(estimates, cuts)
         placing = bool(cuts)
+        separation = () if blocked else self._separation(estimates, cuts)
         return Progress(
             admitted=len(estimates),
             excluded_questions=self._store.excluded_question_count(),
@@ -318,6 +324,7 @@ class Session:
             items_unplaced=unplaced,
             placing=placing,
             blocked_reason=blocked,
+            separation=separation,
         )
 
     def _unplaced(self, estimates: tuple[Estimate, ...], cuts: tuple[Cut, ...]) -> tuple[str, ...]:
@@ -367,6 +374,26 @@ class Session:
             return str(exc)
         return ""
 
+    def _separation(
+        self, estimates: tuple[Estimate, ...], cuts: tuple[Cut, ...]
+    ) -> tuple[CutSeparation, ...]:
+        """Each cut's gap and the findings between its anchors, for `progress`.
+
+        Called once `_blocked_reason` has come back empty. Banded against the
+        thresholds first, because `separation` reads the banded population -- the
+        one `place` and the severity file report. Progress refuses nothing, so a
+        cut whose anchor has no live comparison, which `place` would refuse, is
+        reported here as no separation rather than raised.
+        """
+        if not cuts:
+            return ()
+        theta = {e.finding_id: e.theta for e in estimates}
+        try:
+            assignments = bands.assign_bands(estimates, bands.thresholds(cuts, theta))
+            return bands.separation(cuts, assignments)
+        except (CutError, UnknownItemError):
+            return ()
+
     def mean_comparisons_per_item(self) -> float:
         """Judgments spent per finding *placed* — the other half of the cost model.
 
@@ -401,10 +428,12 @@ class Session:
         self.require_connected()
         theta = {e.finding_id: e.theta for e in estimates}
         cut_values = bands.thresholds(cuts, theta)
+        assignments = bands.assign_bands(estimates, cut_values)
         return Placement(
-            assignments=bands.assign_bands(estimates, cut_values),
+            assignments=assignments,
             unplaced=bands.unplaced(estimates),
             thresholds=cut_values,
+            separation=bands.separation(cuts, assignments),
         )
 
     # -- the operations either front end needs -----------------------------

@@ -13,11 +13,20 @@ import pytest
 from comparative_judgment.core.bands import (
     assign_bands,
     band_for,
+    separation,
     thresholds,
     unplaced,
 )
 from comparative_judgment.core.errors import CutError, UnknownItemError
-from comparative_judgment.core.models import Band, Comparison, Cut, CutName, Estimate, Outcome
+from comparative_judgment.core.models import (
+    Band,
+    BandAssignment,
+    Comparison,
+    Cut,
+    CutName,
+    Estimate,
+    Outcome,
+)
 from comparative_judgment.core.pairing import (
     APPEARANCE_TARGET,
     PLACEMENT_COMPARISONS,
@@ -212,6 +221,65 @@ class TestThresholds:
     def test_an_unknown_anchor_is_reported(self) -> None:
         with pytest.raises(UnknownItemError, match="F-3"):
             thresholds(THREE_CUTS, {"F-0": 2.0, "F-1": 1.0, "F-2": 0.0})
+
+
+def _chained() -> dict[str, float]:
+    """Scale values for `THREE_CUTS` with every anchor pair adjacent."""
+    return {"F-0": 2.0, "F-1": 1.0, "F-2": 0.0, "F-3": -1.0}
+
+
+def _placed(theta: dict[str, float]) -> tuple[BandAssignment, ...]:
+    """Assignments carrying these scale values. Separation does not read the band."""
+    return tuple(
+        BandAssignment(finding_id=item, band=Band.MEDIUM, theta=value)
+        for item, value in theta.items()
+    )
+
+
+class TestSeparation:
+    """D34: each cut's gap and what lies between its anchors, reported and never refused."""
+
+    def test_adjacent_anchors_have_nothing_between_them(self) -> None:
+        reports = separation(THREE_CUTS, _placed(_chained()))
+        assert [r.name for r in reports] == [
+            CutName.CRITICAL_HIGH,
+            CutName.HIGH_MEDIUM,
+            CutName.MEDIUM_LOW,
+        ]
+        assert [r.between for r in reports] == [(), (), ()]
+        assert [r.gap for r in reports] == [1.0, 1.0, 1.0]
+
+    def test_a_finding_between_anchors_is_named_with_the_gap(self) -> None:
+        """The shape D34 answers, at its smallest: a boundary that spans one finding."""
+        reports = separation(THREE_CUTS, _placed({**_chained(), "F-X": 1.5}))
+        assert reports[0].between == ("F-X",)
+        assert reports[0].gap == 1.0
+        assert (reports[1].between, reports[2].between) == ((), ())
+
+    def test_a_finding_level_with_an_anchor_is_not_between_them(self) -> None:
+        """Strictly between: a tie with an anchor sits on the boundary's side, not inside it."""
+        reports = separation(THREE_CUTS, _placed({**_chained(), "F-Y": 1.0}))
+        assert [r.between for r in reports] == [(), (), ()]
+
+    def test_findings_between_anchors_are_listed_most_severe_first(self) -> None:
+        reports = separation(THREE_CUTS, _placed({**_chained(), "F-X": 1.2, "F-Z": 1.8}))
+        assert reports[0].between == ("F-Z", "F-X")
+
+    def test_a_cut_with_seventeen_findings_between_is_reported_not_refused(self) -> None:
+        """As many as the widened cut held in the placement that surfaced this."""
+        inside = {f"F-W{index:02d}": 0.9 - index * 0.05 for index in range(17)}
+        reports = separation(THREE_CUTS, _placed({**_chained(), **inside}))
+        assert len(reports[1].between) == 17
+        assert (reports[1].between[0], reports[1].between[-1]) == ("F-W00", "F-W16")
+
+    def test_an_inverted_cut_is_refused_as_thresholds_refuses_it(self) -> None:
+        theta = {"F-0": 2.0, "F-1": 1.0, "F-2": -1.0, "F-3": 0.0}  # F-2 now below F-3
+        with pytest.raises(CutError, match="medium_low"):
+            separation(THREE_CUTS, _placed(theta))
+
+    def test_an_anchor_nobody_banded_is_refused(self) -> None:
+        with pytest.raises(UnknownItemError, match="F-3"):
+            separation(THREE_CUTS, _placed({"F-0": 2.0, "F-1": 1.0, "F-2": 0.0}))
 
 
 class TestBandAssignment:

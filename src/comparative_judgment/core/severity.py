@@ -19,13 +19,15 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Final
 
+from comparative_judgment.core import bands
 from comparative_judgment.core.errors import SeverityWriteError, UnknownItemError
 from comparative_judgment.core.models import BandAssignment, Cut
 from comparative_judgment.core.store import Store
 
-SEVERITY_SCHEMA_VERSION: Final[str] = "2"
+SEVERITY_SCHEMA_VERSION: Final[str] = "3"
 """Bumped from 1 when each row gained `content_hash`, `appearances` and
-`informative`.
+`informative`, and from 2 when the file gained `cuts`: each cut's anchors, its
+gap and the findings between them (D34).
 
 **A version that does not move when the schema does means nothing**, and the
 consumer needs it here for a specific reason: its own contract says extra fields
@@ -129,6 +131,21 @@ def build_payload(
         "calibration": {
             c.name.value: c.calibration_note for c in sorted(cuts, key=lambda c: c.name.value)
         },
+        # **How each boundary sits on the fit this file came from**, computed from
+        # the rows it exports rather than passed in, so a consumer re-deriving a
+        # between-set from `theta` cannot find the file disagreeing with itself
+        # (D34). A cut with findings between its anchors is reported here and
+        # refused nowhere: how far apart is too far is the rater's judgment.
+        "cuts": [
+            {
+                "name": report.name.value,
+                "above_id": report.above_id,
+                "below_id": report.below_id,
+                "gap": report.gap,
+                "between": list(report.between),
+            }
+            for report in (bands.separation(cuts, assignments) if cuts else ())
+        ],
         "severities": [
             {
                 "id": a.finding_id,

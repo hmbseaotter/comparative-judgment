@@ -13,6 +13,12 @@ two findings a boundary was drawn between have swapped places on the scale. That
 is reported rather than silently re-sorted. It means the scale changed materially
 in that region, which is a thing a human should look at, not a thing to paper
 over.
+
+A refit can also move a pair **apart** without inverting it, and the findings
+that come to lie between the anchors are banded by the midpoint rather than by
+any judgment about the boundary. That is reported too, by `separation`, and
+never refused (D34): an inverted boundary means nothing, a wide one still means
+something, and how wide is too wide is the rater's call.
 """
 
 from __future__ import annotations
@@ -27,6 +33,7 @@ from comparative_judgment.core.models import (
     Band,
     BandAssignment,
     Cut,
+    CutSeparation,
     Estimate,
 )
 
@@ -82,6 +89,42 @@ def thresholds(cuts: Sequence[Cut], theta: Mapping[str, float]) -> tuple[float, 
             )
             raise CutError(msg)
     return tuple(values)
+
+
+def separation(
+    cuts: Sequence[Cut], assignments: Sequence[BandAssignment]
+) -> tuple[CutSeparation, ...]:
+    """Each cut's gap, and the banded findings strictly between its anchors.
+
+    Refuses exactly what `thresholds` refuses -- a missing, unknown or inverted
+    cut, or two boundaries that have crossed -- by calling it, so the two cannot
+    disagree about which cuts are valid. It refuses nothing else: a finding
+    between a cut's anchors is reported by name however many there are (D34).
+
+    Takes assignments rather than estimates so the population is the banded one.
+    An item nobody compared sits where the prior put it, and naming it between two
+    anchors would report the prior as a position. Strictly between, so a finding
+    level with an anchor is not counted; most severe first, with ties broken by id,
+    so the order does not depend on how the assignments arrived.
+    """
+    theta = {assignment.finding_id: assignment.theta for assignment in assignments}
+    thresholds(cuts, theta)
+    by_name = _cuts_by_name(cuts)
+    ordered = sorted(theta.items(), key=lambda item: (-item[1], item[0]))
+    reports: list[CutSeparation] = []
+    for name in CUT_ORDER:
+        cut = by_name[name.value]
+        above, below = theta[cut.above_id], theta[cut.below_id]
+        reports.append(
+            CutSeparation(
+                name=name,
+                above_id=cut.above_id,
+                below_id=cut.below_id,
+                gap=above - below,
+                between=tuple(item for item, value in ordered if below < value < above),
+            )
+        )
+    return tuple(reports)
 
 
 def band_for(theta_value: float, cut_thresholds: Sequence[float]) -> Band:

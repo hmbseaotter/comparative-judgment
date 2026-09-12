@@ -22,7 +22,7 @@ from collections.abc import Sequence
 from pathlib import Path
 
 from comparative_judgment.core.errors import ComparativeJudgmentError
-from comparative_judgment.core.models import CUT_ORDER, Cut
+from comparative_judgment.core.models import CUT_ORDER, Cut, CutSeparation
 from comparative_judgment.core.session import DEFAULT_APPEARANCE_TARGET, Session
 
 #: The location this project's own documentation and examples use. It is
@@ -155,6 +155,20 @@ def _listed(ids: tuple[str, ...], limit: int = 8) -> str:
     return shown if len(ids) <= limit else f"{shown} (+{len(ids) - limit} more)"
 
 
+def _print_separation(separation: Sequence[CutSeparation]) -> None:
+    """Each cut's gap and the findings between its anchors (D34). Reported, never refused."""
+    if not separation:
+        return
+    print()
+    print("cut separation (findings strictly between each cut's anchors on this fit):")
+    for cut in separation:
+        between = _listed(cut.between) if cut.between else "none"
+        print(
+            f"  {cut.name.value:<14} {cut.above_id} | {cut.below_id}   "
+            f"gap {cut.gap:.4f}   between: {between}"
+        )
+
+
 def cmd_status(args: argparse.Namespace) -> int:
     session = _session(args, target=args.target)
     progress = session.progress()
@@ -173,6 +187,7 @@ def cmd_status(args: argparse.Namespace) -> int:
             print(f"unplaced            {_listed(progress.items_unplaced)}")
     elif progress.items_below_target:
         print(f"below target        {_listed(progress.items_below_target)}")
+    _print_separation(progress.separation)
 
     if progress.blocked_reason:
         print()
@@ -261,6 +276,7 @@ def cmd_bands(args: argparse.Namespace) -> int:
         print(f"unplaced ({len(placement.unplaced)}): {', '.join(placement.unplaced)}")
         print("  no comparison behind these, so banding them would report the prior")
         print("  rather than a judgment.")
+    _print_separation(placement.separation)
     return 0
 
 
@@ -269,6 +285,7 @@ def cmd_export(args: argparse.Namespace) -> int:
     path = Path(args.out)
     placement = session.export(path)
     print(f"wrote {len(placement.assignments)} severity assignment(s) to {path}")
+    _print_separation(placement.separation)
     return 0
 
 

@@ -744,7 +744,7 @@ The convention makes a promise about *test* churn rather than about production s
 
 ## Document status
 
-Decisions **D1–D33** recorded. The most consequential is **D2**, which overturns the source design's central algorithmic choice; **D5** additionally settles a gap in a second project's specification, which must be amended to match.
+Decisions **D1–D34** recorded. The most consequential is **D2**, which overturns the source design's central algorithmic choice; **D5** additionally settles a gap in a second project's specification, which must be amended to match.
 
 ## D33 — A severity row was a conclusion with its basis stripped off
 
@@ -811,7 +811,64 @@ in by a caller who might hold a stale view.
 finding, `appearances >= informative >= 0`, no banded row has zero appearances, and the payload
 declares `schema_version` 2.
 
+## D34 — A cut says how far apart its anchors have drifted, and refuses nothing for it
+
+**Fork:** A cut is stored as the two findings either side of it and banded by their midpoint (D12),
+and a refit that inverts the pair is refused by name. A refit that merely moves the pair **apart** is
+not reported at all, though it is the same defect at a lower magnitude: the boundary stops describing
+a gap between two neighbors, and the findings that come to lie between the anchors are banded by the
+midpoint rather than by any judgment against the boundary. The consuming harness met it: placing one
+finding took `high_medium` from a gap of 0.060 with nothing between its anchors to 1.4005 with
+seventeen findings inside, and three of them changed band with nothing saying so. The inversion check
+could not have caught it, because a separated cut satisfies exactly the inequality it tests. The
+consuming project registered the gap as an obligation owed in both repositories.
+
+**Options considered.**
+
+- **(A) Report every cut's gap and the findings between its anchors, and refuse nothing.**
+- **(B) Refuse a cut with more than one finding between its anchors.**
+- **(C) Refuse a cut with any finding between its anchors**, exactly as an inversion is refused.
+- **(D) Freeze bands at export and propose any change for acceptance**, which is what D2 says a refit
+  should do.
+
+**Decision: (A)**, the owner's, on 2026-09-12.
+
+**Why** — how far apart is too far is a judgment, and the evidence does not decide it: one finding
+between anchors is ordinary drift and seventeen is not, and the consuming project's committed cuts
+hold one finding inside two of their three right now, which nobody would call a collapse. (B) chooses a
+line between those by fiat, and (C) would block that store until it is re-anchored, for movement the
+consuming project itself recorded as ordinary. (D) catches every silent re-banding rather than one
+route to it, and it is the larger change: D2 states it as a consequence, the specification never made
+it a requirement, and nothing builds it. The consuming project registers it as an obligation of its
+own rather than folding it into this one.
+
+**Choices that followed, recorded as mine.** **The population is the banded one**: a finding nobody
+compared sits where the prior put it, so naming it between two anchors would report the prior as a
+position, and the severity file exports only banded rows. **Strictly between**, so a finding level
+with an anchor sits on the boundary's side rather than inside it. **Most severe first, ties by id**, so
+the order does not depend on how assignments arrive. **The file computes `cuts` from the rows it
+exports** rather than taking them from a caller, for the reason D33's row evidence is read from the
+store: a consumer re-deriving a between-set from `theta` must not find the file disagreeing with
+itself. **`separation` refuses exactly what `thresholds` refuses, by calling it**, so the two cannot
+disagree about which cuts are valid.
+
+**Consequences / caveats** — `schema_version` is `3`, for D33's reason: extra fields are tolerated,
+so without a version a consumer cannot tell a file that predates `cuts` from a tool that never wrote
+it. `run_id` does not move, since it already derives from the cuts. **One refusal is new**: `bands`
+and `export` now refuse a cut whose anchor has no live comparison, because separation reads the
+banded population and such an anchor is not in it. `cuts` already refuses that shape when it is set,
+so this reaches only a store whose anchor's comparisons were all retracted afterwards, and progress
+reports no separation there rather than refusing. The terminal UI's pane does not show separation;
+`status` prints it.
+
+**Rule** — enforced by test: `tests/test_bands_pairing.py::TestSeparation`, which plants a finding
+between anchors, one level with an anchor, two in reverse order and seventeen inside one cut, and
+refuses only the inverted and unknown cases `thresholds` refuses;
+`tests/test_session.py::TestPlacementMode::test_a_cut_spanning_a_finding_reports_it_in_placement_and_progress`;
+and `tests/test_cli.py::TestFullFlow::test_cuts_then_bands_then_export`, which requires the file's `cuts` to equal `separation`
+over the rows it exports.
+
 
 Spec: `specs/comparative-judgment.md`. Build prompt: `specs/comparative-judgment.build-prompt.md` (phase 1, frozen).
 
-Any new fork encountered during the build is appended here in the same shape, and from **D9** onward each entry ends with a `**Rule**` line naming what enforces it. Numbering continues from **D34**. Both figures, and the gaplessness of the sequence between them, are asserted by `tests/test_constraints.py::test_the_decision_record_states_its_own_high_water_mark` — so this section is the maintained copy rather than a remembered one, and the header no longer keeps a second.
+Any new fork encountered during the build is appended here in the same shape, and from **D9** onward each entry ends with a `**Rule**` line naming what enforces it. Numbering continues from **D35**. Both figures, and the gaplessness of the sequence between them, are asserted by `tests/test_constraints.py::test_the_decision_record_states_its_own_high_water_mark` — so this section is the maintained copy rather than a remembered one, and the header no longer keeps a second.
