@@ -130,10 +130,12 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.HARNESS_DISPATCH_TOKEN }}
         # HARNESS_DISPATCH_TOKEN needs Actions: write on
-        # hmbseaotter/voice-agent-eval-harness and nothing else. Until it is
-        # created this warns rather than fails, so that a missing secret does
-        # not turn every spec push red -- but it warns loudly, because a
-        # dispatch nobody notices is not wired at all.
+        # hmbseaotter/voice-agent-eval-harness and nothing else. It exists and
+        # the dispatch is armed: a push has used it (D31, the Armed banner). If
+        # the secret is deleted this warns rather than fails, so that a missing
+        # secret does not turn every spec push red -- but it warns loudly,
+        # because a dispatch nobody notices is not wired at all. A token that is
+        # set but expired, or lacks the permission, fails the build below.
         run: |
           if [ -z "${GH_TOKEN}" ]; then
             echo "::warning title=Interface scanner not triggered::HARNESS_DISPATCH_TOKEN"
