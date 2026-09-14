@@ -95,11 +95,14 @@ def _write_json(path: Path, payload: dict[str, object]) -> None:
 
     `sort_keys` is not cosmetic: two stores built from identical inputs must
     produce identical bytes, and dict insertion order would otherwise leak
-    construction order into the file.
+    construction order into the file. Nor is writing LF: left to the platform,
+    every line ends in its separator, and a store's bytes depend on the machine
+    that wrote them (D35).
     """
     path.write_text(
         json.dumps(payload, indent=2, sort_keys=True, ensure_ascii=False) + "\n",
         encoding="utf-8",
+        newline="\n",
     )
 
 
@@ -271,7 +274,9 @@ class Store:
             for f in findings
         ]
         body = "\n".join(lines)
-        (self.path / FINDINGS_FILE).write_text(body + "\n" if body else "", encoding="utf-8")
+        (self.path / FINDINGS_FILE).write_text(
+            body + "\n" if body else "", encoding="utf-8", newline="\n"
+        )
 
     def findings(self) -> tuple[Finding, ...]:
         out: list[Finding] = []
@@ -378,7 +383,7 @@ class Store:
         merely buffered is a comparison a crash silently discards — and the rater
         would have no way to know which judgment vanished.
         """
-        with (self.path / LOG_FILE).open("a", encoding="utf-8") as handle:
+        with (self.path / LOG_FILE).open("a", encoding="utf-8", newline="\n") as handle:
             handle.write(json.dumps(payload, sort_keys=True, ensure_ascii=False) + "\n")
             handle.flush()
 
@@ -710,9 +715,15 @@ class Store:
         records is deliberate: it covers retractions and ordering too, so any
         change to the history changes the hash even when the active comparisons
         are unchanged.
+
+        **Line endings are normalized first** (D35). A platform's separator is not
+        part of the history, and hashing it named different hashes for the same
+        judgments on Windows and on Linux. CRLF pairs become LF before hashing, so
+        a log written partly by each hashes as the same log written clean, and
+        ordering and retractions still count.
         """
         raw = (self.path / LOG_FILE).read_bytes() if (self.path / LOG_FILE).is_file() else b""
-        return hashlib.sha256(raw).hexdigest()
+        return hashlib.sha256(raw.replace(b"\r\n", b"\n")).hexdigest()
 
     def active_comparisons(self) -> tuple[Comparison, ...]:
         """Comparisons with retractions applied.

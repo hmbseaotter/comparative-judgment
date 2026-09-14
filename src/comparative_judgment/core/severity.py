@@ -189,7 +189,7 @@ def write_severity_file(
     payload = build_payload(assignments=assignments, store=store, unplaced=unplaced, cuts=cuts)
     body = json.dumps(payload, indent=2, sort_keys=True, ensure_ascii=False) + "\n"
     try:
-        path.write_text(body, encoding="utf-8")
+        path.write_text(body, encoding="utf-8", newline="\n")
     except OSError as exc:
         msg = f"cannot write the severity file to {path}: {exc}"
         raise SeverityWriteError(msg) from exc

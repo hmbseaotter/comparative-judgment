@@ -744,7 +744,7 @@ The convention makes a promise about *test* churn rather than about production s
 
 ## Document status
 
-Decisions **D1–D34** recorded. The most consequential is **D2**, which overturns the source design's central algorithmic choice; **D5** additionally settles a gap in a second project's specification, which must be amended to match.
+Decisions **D1–D35** recorded. The most consequential is **D2**, which overturns the source design's central algorithmic choice; **D5** additionally settles a gap in a second project's specification, which must be amended to match.
 
 ## D33 — A severity row was a conclusion with its basis stripped off
 
@@ -868,7 +868,43 @@ refuses only the inverted and unknown cases `thresholds` refuses;
 and `tests/test_cli.py::TestFullFlow::test_cuts_then_bands_then_export`, which requires the file's `cuts` to equal `separation`
 over the rows it exports.
 
+## D35 — The log's hash does not depend on the platform that wrote it
+
+**Fork:** the consuming harness's phase-4 audit found (its P4-9) that every file this tool writes
+carries the platform's line endings, and that `Store.log_hash` hashes the log's raw bytes, deliberately,
+so that retractions and ordering count as well as the active comparisons. So the same judgments recorded
+on Windows and on Linux name different `comparison_log_hash` values, and a different `run_id` with
+them, which breaks what the Integrity line promises of two exports over an unchanged history wherever
+the platform differs. The consuming project's store measured it: CRLF on every line of all four store
+files. It had been left unfixed because appending LF records to a CRLF log looked like a trade, a log of
+mixed endings whose hash would move anyway.
+
+**Options considered.**
+
+- **(A) Normalize line endings inside `log_hash`, write LF from every writer, and rewrite the existing
+  store once.**
+- **(B) Write LF from every writer only**, leaving the hash over raw bytes.
+- **(C) Leave both, and state the platform in the Integrity line.**
+
+**Decision: (A)**, the owner's, on 2026-09-14, with the consuming project's store backed up before its
+rewrite.
+
+**Why** — normalizing before hashing keeps what the raw-byte hash was chosen for, since ordering and
+retractions are still in the bytes, and it removes the trade: a log written partly CRLF and partly LF
+hashes as the same log written clean. (B) fixes new writes and leaves every existing CRLF store naming a
+hash no other platform computes. (C) keeps a provenance claim true only on the machine that made it.
+
+**Consequences / caveats** — a store written with CRLF endings names a different `comparison_log_hash`
+under this version than under 0.8.0, and a different `run_id` with it; re-exporting over an unchanged
+log moves those two fields and nothing else. Only CRLF pairs are normalized: a lone carriage return is
+not a line ending, and a JSON record cannot carry one unescaped. The consuming project rewrites its store
+to LF once, after a verified backup, comparing every parsed record before and after.
+
+**Rule** — enforced by test:
+`tests/test_store.py::TestLineEndings::test_the_log_hash_does_not_depend_on_the_line_endings_that_wrote_the_log`
+and `tests/test_store.py::TestLineEndings::test_every_file_is_written_with_lf_whatever_the_platform`.
+
 
 Spec: `specs/comparative-judgment.md`. Build prompt: `specs/comparative-judgment.build-prompt.md` (phase 1, frozen).
 
-Any new fork encountered during the build is appended here in the same shape, and from **D9** onward each entry ends with a `**Rule**` line naming what enforces it. Numbering continues from **D35**. Both figures, and the gaplessness of the sequence between them, are asserted by `tests/test_constraints.py::test_the_decision_record_states_its_own_high_water_mark` — so this section is the maintained copy rather than a remembered one, and the header no longer keeps a second.
+Any new fork encountered during the build is appended here in the same shape, and from **D9** onward each entry ends with a `**Rule**` line naming what enforces it. Numbering continues from **D36**. Both figures, and the gaplessness of the sequence between them, are asserted by `tests/test_constraints.py::test_the_decision_record_states_its_own_high_water_mark` — so this section is the maintained copy rather than a remembered one, and the header no longer keeps a second.

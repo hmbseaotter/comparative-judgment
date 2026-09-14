@@ -29,6 +29,7 @@ from comparative_judgment.core.models import (
     Tier,
     content_hash,
 )
+from comparative_judgment.core.severity import write_severity_file
 from comparative_judgment.core.store import LOG_FILE, META_FILE, Store
 
 
@@ -248,3 +249,91 @@ class TestDeterminism:
                 )
             )
         assert digests[0] == digests[1]
+
+
+class TestLineEndings:
+    """A store's bytes and its log hash do not depend on the platform (D35)."""
+
+    def test_the_log_hash_does_not_depend_on_the_line_endings_that_wrote_the_log(
+        self, store: Store
+    ) -> None:
+        """The same history names the same hash, on every platform.
+
+        The hash covers the raw bytes so that ordering and retractions count, and
+        a platform's line separator is neither. The log is written with LF, then
+        with CRLF, the endings a Windows writer used to produce, then with one
+        CRLF among LF lines, and all three must name one hash.
+        """
+        first = store.append_comparison(
+            left_id="F-1", right_id="F-2", outcome=Outcome.LEFT, rater_id="r", session_id="s"
+        )
+        store.append_comparison(
+            left_id="F-2", right_id="F-3", outcome=Outcome.TIE, rater_id="r", session_id="s"
+        )
+        store.append_retraction(retracts_seq=first.seq, rater_id="r", session_id="s")
+        log = store.path / LOG_FILE
+        lf = log.read_bytes().replace(b"\r\n", b"\n")
+        assert lf.count(b"\n") == 3, "the log does not hold the three records written"
+
+        log.write_bytes(lf)
+        written_with_lf = store.log_hash()
+        log.write_bytes(lf.replace(b"\n", b"\r\n"))
+        assert store.log_hash() == written_with_lf, "a CRLF log names a different hash"
+        log.write_bytes(lf.replace(b"\n", b"\r\n", 1))
+        assert store.log_hash() == written_with_lf, "a log of mixed endings names a different hash"
+
+    def test_every_file_is_written_with_lf_whatever_the_platform(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Asked for, and not merely observed.
+
+        A write that names no line ending takes the platform's, so on Linux it
+        produces LF whether or not the writer asked, and a check of the bytes
+        alone passes there with the defect in place. Every writing call is
+        recorded and must ask for LF; the bytes are checked as well, which is how
+        the defect looked on the machine that found it.
+        """
+        requested: list[tuple[str, str | None]] = []
+        original_write_text = Path.write_text
+        original_open = Path.open
+
+        def write_text(
+            self: Path,
+            data: str,
+            encoding: str | None = None,
+            errors: str | None = None,
+            newline: str | None = None,
+        ) -> int:
+            requested.append((self.name, newline))
+            return original_write_text(
+                self, data, encoding=encoding, errors=errors, newline=newline
+            )
+
+        def open_(
+            self: Path,
+            mode: str = "r",
+            buffering: int = -1,
+            encoding: str | None = None,
+            errors: str | None = None,
+            newline: str | None = None,
+        ) -> object:
+            if "w" in mode or "a" in mode:
+                requested.append((self.name, newline))
+            return original_open(self, mode, buffering, encoding, errors, newline)
+
+        monkeypatch.setattr(Path, "write_text", write_text)
+        monkeypatch.setattr(Path, "open", open_)
+        written = Store.create(tmp_path / "store", clock=_fixed_clock)
+        written.put_findings([_finding("F-1"), _finding("F-2"), _finding("F-3")])
+        written.append_comparison(
+            left_id="F-1", right_id="F-2", outcome=Outcome.LEFT, rater_id="r", session_id="s"
+        )
+        written.put_cuts([Cut(CutName.MEDIUM_LOW, "F-2", "F-3")])
+        write_severity_file(tmp_path / "severity.json", assignments=(), store=written)
+        monkeypatch.undo()
+
+        names = {name for name, _ in requested}
+        assert {META_FILE, "findings.jsonl", LOG_FILE, "cuts.json", "severity.json"} <= names
+        assert [entry for entry in requested if entry[1] != "\n"] == []
+        for path in (*written.path.iterdir(), tmp_path / "severity.json"):
+            assert b"\r" not in path.read_bytes(), f"{path.name} carries a carriage return"
