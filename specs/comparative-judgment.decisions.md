@@ -46,6 +46,11 @@
 
 ## D2 — Bradley-Terry rather than a comparison sort
 
+> **Specified at D36, 2026-09-18.** The last sentence of the Consequences below — bands frozen at
+> assignment, a refit producing a proposed revision — was a promise nothing specified, and D34
+> declined to build it. D36 makes it a requirement, in the only form the consuming harness can
+> read: an export refuses a changed band rather than writing the old one.
+
 **Fork:** The source design specifies a merge-style pairwise sort for the cold-start bootstrap, and separately says *"treat intransitivity as the primary output, not an error"* and *"capture cycles from the very first session."* Can both hold?
 
 **Options considered**
@@ -734,7 +739,7 @@ The convention makes a promise about *test* churn rather than about production s
 - **The remaining O(n²) is in the session, not the store.** D19 removed the store's, and the 0.5.0 changelog's claim that "the sequence counter is cached, ending an O(n-squared) session cost" was narrower than it read: one such cost ended, and the one above did not. Stated here so the next reader does not conclude the session is linear.
 - **Concurrency beyond interleaved appends is unexplored.** D19 closes the reachable case — two handles appending in turn. Two processes appending at the *same instant* can still collide, and nothing in the store takes a lock. Demonstrated at its simplest by the audit; cross-process behavior is inferred from the same code path, not executed.
 - **No literature review was performed.** The method and the ten-appearances figure come from general knowledge of comparative judgment practice, not from cited sources. The audit did not check them against sources either.
-- **Whether bands are recomputed or frozen after a refit was decided in principle** (freeze, propose revisions) and is still not written as a requirement.
+- ~~**Whether bands are recomputed or frozen after a refit was decided in principle** (freeze, propose revisions) and is still not written as a requirement.~~ **Specified at D36 (0.10.0) and not yet built**: until it is, a refit still relabels without saying so, and the seven criteria D36 added are unmet.
 - **Carrying judgments across an accepted revision (D18) or a removal (D22) is unmeasured.** Nobody knows how far text can drift before old judgments stop meaning anything, and the tool tells a rater only that the hashes differ — not how large the change was.
 - **`anchor_set_version` cannot be set by any caller.** `Store.create` accepts it, nothing passes it, and `cj init` has no flag, so it is permanently `"1"` while the severity file publishes it as provenance and the run id hashes it. Reserved until anchor import/export lands in phase 2; a version that never changes is honest only while there is one anchor set.
 - **The venv runs Python 3.14; mypy targets 3.12.** CI now runs 3.12 and 3.13 (D-none, part of the audit sweep), so the gap is narrowed but not closed: the interpreter development actually happens on is in neither matrix row.
@@ -744,7 +749,7 @@ The convention makes a promise about *test* churn rather than about production s
 
 ## Document status
 
-Decisions **D1–D35** recorded. The most consequential is **D2**, which overturns the source design's central algorithmic choice; **D5** additionally settles a gap in a second project's specification, which must be amended to match.
+Decisions **D1–D36** recorded. The most consequential is **D2**, which overturns the source design's central algorithmic choice; **D5** additionally settles a gap in a second project's specification, which must be amended to match.
 
 ## D33 — A severity row was a conclusion with its basis stripped off
 
@@ -904,7 +909,96 @@ to LF once, after a verified backup, comparing every parsed record before and af
 `tests/test_store.py::TestLineEndings::test_the_log_hash_does_not_depend_on_the_line_endings_that_wrote_the_log`
 and `tests/test_store.py::TestLineEndings::test_every_file_is_written_with_lf_whatever_the_platform`.
 
+## D36 — A band, once assigned, is frozen, and a refit proposes rather than relabels
+
+**Fork:** D2 closes its Consequences with a promise: bands are frozen at assignment, and a refit
+produces a proposed revision for review rather than silently relabeling something the consuming
+harness already cites. Nothing specified it and nothing built it; D34 named it and declined it as the
+larger change. So a refit relabels without saying so. In the consuming harness, placing one finding
+re-banded three others (its D144), and D34's separation report sees a finding enter or leave a cut's
+anchors, not one that stays between them while the boundary moves past it. The harness registered the
+gap as its OB-23, owed here before the next comparison is recorded into its store, since that is the
+event that refits the scale.
+
+One constraint decides the shape before any option is weighed. The harness refuses a severity file in
+which any row's band is not the one its `theta` falls in by the cuts' midpoints (its D171, answering
+its OB-25). So a frozen band cannot be *exported* beside a fit that places it elsewhere, and the freeze
+has to take the form of refusing to export a change until a rater accepts it.
+
+**Options considered.** Three forks, taken with the owner in order.
+
+*Where the frozen band is held.*
+- **(A) An assignment record in the append-only log**, beside comparisons, retractions, revisions and
+  removals.
+- **(B) A snapshot outside the log**, written into the store by `export` and not covered by the log hash.
+- **(C) The previous severity file**, read back from `--out` as the baseline.
+- **(D) Export the frozen band beside the current fit**, with the proposed band in a field of its own.
+
+*What appends it.*
+- **(A) A new `assign` command**, with `export` left read-only.
+- **(B) `export` itself**, assigning first-time bands and refusing only a change.
+
+*Which phase.* **`[P1]`**, or **`[P2]`** with the diagnostics.
+
+**Decision: (A), (A) and `[P1]`**, the owner's, on 2026-09-18, with the six transitions below
+confirmed as drafted.
+
+**Why** — **(D) is ruled out by the consumer, not by preference**: every row it wrote would be refused
+on load, and making it loadable means relaxing the harness's D171 and changing the row list both
+specifications enumerate, in lockstep. (C) is bypassed by exporting to any other path, and keeps the
+only copy of the baseline in the consumer's tree. (B) is simpler than (A) and fails the way this
+repository's guards keep failing: delete the snapshot and every band looks new, so the freeze goes
+quiet rather than red. (A) puts the freeze inside the history the log hash already covers — the run id
+names the assignment a file was exported under, and removing one changes the hash — which is D18's
+shape for an audited acceptance.
+
+A separate `assign` keeps `export` a read of the store, so two exports over an unchanged history stay
+byte-identical with no question of which one wrote a record (D23). The cost is one command before the
+first export of any store, the consuming harness's included. Having `export` assign would have spared
+that, and made every export with a new band need a rater identifier: a writer that is sometimes a
+reader.
+
+`[P1]`, because the freeze guards the scoring path phase 1 built and is owed before the consuming
+harness's next judgment; `[P2]` would leave that judgment unguarded until the diagnostics are built.
+
+**The six transitions**, each read against the most recent assignment:
+1. **Banded for the first time** — `assign` assigns it with no further flag, and `export` refuses until
+   it does.
+2. **Unchanged** — nothing.
+3. **Re-banded** — assigned one band and placed in another by the current fit, whether through a
+   comparison, a retraction or a re-set cut: a proposed revision, reported by `status` and `bands`,
+   refused by `export`, and accepted only by `assign` with the re-banding flag.
+4. **Lost its band** — every comparison involving it retracted since it was assigned: a proposed
+   revision to no band, needing the same flag.
+5. **Removed** — an accepted removal (D22) lets its assignment lapse, the removal being an audited
+   acceptance already.
+6. **Revised** — an accepted revision (D18) leaves its assignment standing, and the band moves only as
+   in case 3.
+
+**Choices that followed, proposed here and confirmed with the transitions.** **There is no rejecting a
+proposal**: a band the fit contradicts cannot be exported, so a rater who disagrees answers with
+evidence — more comparisons, or retracting a mis-keyed one — until the fit agrees. **An `assign` that
+changes nothing writes nothing**, for the reason a retraction naming nothing is refused: an inert
+record still changes the log hash. **Each record holds the whole banded set**, so the frozen state is
+the latest record alone and no reader replays a chain of changes. **The re-banding flag is separate
+from the rater identifier**, for D22's reason: the more consequential acceptance is not reachable by
+habit. **The terminal UI's pane is not required to show proposals**, as D34 left separation to
+`status`.
+
+**Consequences / caveats** — **specified, not built**: until it is, a refit still relabels without
+saying so, and phase 1 is open on seven criteria. The log gains a fifth record kind, so an earlier
+version refuses a store holding an assignment as an unknown entry kind — a named refusal rather than a
+misreading. Every `assign` that writes moves `comparison_log_hash` and `run_id`, as an accepted revision
+does. The severity file's fields and `schema_version` do not move, so neither specification's
+enumerated lists change and the harness's interface scanner has nothing new to compare. **The
+consuming harness's next export needs one `assign` first**, and its `comparison_log_hash` and `run_id`
+move with it.
+
+**Rule** — to be enforced by test once built, at least one per criterion D36 added; until then nothing
+holds this requirement, which is the state the consuming harness's OB-23 records. The build replaces
+this line with the tests' names.
+
 
 Spec: `specs/comparative-judgment.md`. Build prompt: `specs/comparative-judgment.build-prompt.md` (phase 1, frozen).
 
-Any new fork encountered during the build is appended here in the same shape, and from **D9** onward each entry ends with a `**Rule**` line naming what enforces it. Numbering continues from **D36**. Both figures, and the gaplessness of the sequence between them, are asserted by `tests/test_constraints.py::test_the_decision_record_states_its_own_high_water_mark` — so this section is the maintained copy rather than a remembered one, and the header no longer keeps a second.
+Any new fork encountered during the build is appended here in the same shape, and from **D9** onward each entry ends with a `**Rule**` line naming what enforces it. Numbering continues from **D37**. Both figures, and the gaplessness of the sequence between them, are asserted by `tests/test_constraints.py::test_the_decision_record_states_its_own_high_water_mark` — so this section is the maintained copy rather than a remembered one, and the header no longer keeps a second.
