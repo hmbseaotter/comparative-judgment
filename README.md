@@ -223,20 +223,13 @@ So a push to `main` here that touches `specs/` asks the harness to run it now (D
 `Actions: Read and write` is the narrowest grant that can start a workflow — GitHub offers no
 write-only option for it, and read alone cannot dispatch.
 
-**Making one.** GitHub → your avatar → **Settings** → **Developer settings** → **Personal access
-tokens** → **Fine-grained tokens** → **Generate new token**, or go straight to
-<https://github.com/settings/personal-access-tokens/new>.
-
-| field | value |
-|---|---|
-| Resource owner | `hmbseaotter` |
-| Repository access | **Only select repositories** → `voice-agent-eval-harness` |
-| Permissions | **Repository permissions** → `Actions: Read and write`, and nothing else |
-| Expiration | your choice — **write the date down** |
-
-Copy it on the page that follows; GitHub will not show it again. Then install it here: this
-repository → **Settings** → **Secrets and variables** → **Actions** → **New repository secret**,
-named exactly `HARNESS_DISPATCH_TOKEN`.
+**Making or replacing it** follows the harness's README, under *Access: three fine-grained tokens*,
+which walks through all three tokens these repositories use: creating one at
+<https://github.com/settings/personal-access-tokens/new>, installing it here as a repository secret
+named exactly `HARNESS_DISPATCH_TOKEN`, and running this repository's workflow by hand to see the
+dispatch succeed. The steps are written there once rather than in each repository, so they cannot
+drift apart; the harness holds them because it is the hub, the only one of the three that talks to
+both others.
 
 **On the day it expires**, a spec change here stops asking the harness to check the interface, and
 the two specifications can drift with both builds green. The dispatch step fails loudly and names the
@@ -247,13 +240,7 @@ reason it fails instead of warning.
 lifetime, which is the runway to finish the harness and the projects around it and make them public
 — a choice for that purpose, not a recommendation. Whoever replaces it updates this date. It is the
 author's token and reaches only the author's repository, so it works for nobody else: running these
-repositories under another account means creating all three tokens there, by the steps above and the
-harness's map, and pointing the repository names the workflows spell out — here,
-`hmbseaotter/voice-agent-eval-harness` in `.github/workflows/checks.yml` — at that account's copies.
-
-**Three repositories share three tokens, and the map of which grants what lives in the harness's
-README**, under *Access: three fine-grained tokens*. It is there rather than here because the harness
-is the hub: it is the only one of the three that talks to both others.
+repositories under another account means making the tokens there, by the harness's steps.
 
 ## License
 
