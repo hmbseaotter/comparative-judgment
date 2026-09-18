@@ -232,6 +232,14 @@ the two specifications can drift with both builds green. The dispatch step fails
 permission needed, so the lapse shows up as a red build rather than as silence — which is the whole
 reason it fails instead of warning.
 
+**The token installed now expires on 2026-11-06.** It was created on 2026-09-07 with a 60-day
+lifetime, which is the runway to finish the harness and the projects around it and make them public
+— a choice for that purpose, not a recommendation. Whoever replaces it updates this date. It is the
+author's token and reaches only the author's repository, so it works for nobody else: running these
+repositories under another account means creating all three tokens there, by the steps above and the
+harness's map, and pointing the repository names the workflows spell out — here,
+`hmbseaotter/voice-agent-eval-harness` in `.github/workflows/checks.yml` — at that account's copies.
+
 **Three repositories share three tokens, and the map of which grants what lives in the harness's
 README**, under *Access: three fine-grained tokens*. It is there rather than here because the harness
 is the hub: it is the only one of the three that talks to both others.
