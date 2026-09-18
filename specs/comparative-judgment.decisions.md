@@ -739,7 +739,7 @@ The convention makes a promise about *test* churn rather than about production s
 - **The remaining O(n²) is in the session, not the store.** D19 removed the store's, and the 0.5.0 changelog's claim that "the sequence counter is cached, ending an O(n-squared) session cost" was narrower than it read: one such cost ended, and the one above did not. Stated here so the next reader does not conclude the session is linear.
 - **Concurrency beyond interleaved appends is unexplored.** D19 closes the reachable case — two handles appending in turn. Two processes appending at the *same instant* can still collide, and nothing in the store takes a lock. Demonstrated at its simplest by the audit; cross-process behavior is inferred from the same code path, not executed.
 - **No literature review was performed.** The method and the ten-appearances figure come from general knowledge of comparative judgment practice, not from cited sources. The audit did not check them against sources either.
-- ~~**Whether bands are recomputed or frozen after a refit was decided in principle** (freeze, propose revisions) and is still not written as a requirement.~~ **Specified at D36 (0.10.0) and not yet built**: until it is, a refit still relabels without saying so, and the seven criteria D36 added are unmet.
+- ~~**Whether bands are recomputed or frozen after a refit was decided in principle** (freeze, propose revisions) and is still not written as a requirement.~~ **Specified at D36 (0.10.0) and built at 0.10.1**: a refit now proposes, and `export` refuses until a rater assigns. What stays unchecked is the consuming harness's side — its store takes one `assign` before its next export, which no test here can see.
 - **Carrying judgments across an accepted revision (D18) or a removal (D22) is unmeasured.** Nobody knows how far text can drift before old judgments stop meaning anything, and the tool tells a rater only that the hashes differ — not how large the change was.
 - **`anchor_set_version` cannot be set by any caller.** `Store.create` accepts it, nothing passes it, and `cj init` has no flag, so it is permanently `"1"` while the severity file publishes it as provenance and the run id hashes it. Reserved until anchor import/export lands in phase 2; a version that never changes is honest only while there is one anchor set.
 - **The venv runs Python 3.14; mypy targets 3.12.** CI now runs 3.12 and 3.13 (D-none, part of the audit sweep), so the gap is narrowed but not closed: the interpreter development actually happens on is in neither matrix row.
@@ -911,6 +911,12 @@ and `tests/test_store.py::TestLineEndings::test_every_file_is_written_with_lf_wh
 
 ## D36 — A band, once assigned, is frozen, and a refit proposes rather than relabels
 
+> **Built at 0.10.1, 2026-09-18.** The Consequences below open with *"specified, not built"*,
+> and the Rule said nothing held the requirement. Both are superseded: `cj assign` and the
+> export refusal exist, and the Rule names the tests. The re-banding flag is spelled
+> `--accept-rebanding`, and an assignment is recorded under the session id `assign`, as a
+> load's acceptances are recorded under `load`.
+
 **Fork:** D2 closes its Consequences with a promise: bands are frozen at assignment, and a refit
 produces a proposed revision for review rather than silently relabeling something the consuming
 harness already cites. Nothing specified it and nothing built it; D34 named it and declined it as the
@@ -994,9 +1000,11 @@ enumerated lists change and the harness's interface scanner has nothing new to c
 consuming harness's next export needs one `assign` first**, and its `comparison_log_hash` and `run_id`
 move with it.
 
-**Rule** — to be enforced by test once built, at least one per criterion D36 added; until then nothing
-holds this requirement, which is the state the consuming harness's OB-23 records. The build replaces
-this line with the tests' names.
+**Rule** — enforced by test: `tests/test_frozen_bands.py`, whose `TestTheFirstAssignment`,
+`TestAChangeToAnAssignedBand` and `TestFirstAssignmentsAndLapses` hold the seven criteria, each
+scenario asserting its own precondition so a comparison that moved nothing fails rather than passes;
+`TestTheProposalRule` holds the comparison itself. `tests/test_cli.py::TestFullFlow::test_cuts_then_bands_then_export`
+requires `export` to refuse before `assign` and succeed after.
 
 
 Spec: `specs/comparative-judgment.md`. Build prompt: `specs/comparative-judgment.build-prompt.md` (phase 1, frozen).

@@ -184,6 +184,7 @@ class TestCutsValidateBeforeWriting:
                 Cut(CutName.MEDIUM_LOW, ranked[2], ranked[3]),
             ]
         )
+        session.assign()
         out = workspace / "severity.json"
         session.export(out)
         payload = json.loads(out.read_text(encoding="utf-8"))
@@ -540,6 +541,7 @@ class TestExportToAMissingDirectory:
                 Cut(CutName.MEDIUM_LOW, ranked[2], ranked[3]),
             ]
         )
+        session.assign()
         target = workspace / "no" / "such" / "dir" / "severity.json"
         assert main(["export", "--store", store, "--target", "3", "--out", str(target)]) == 1
         assert "cannot write" in capsys.readouterr().err
@@ -557,6 +559,7 @@ class TestTheRunIdIsDerived:
                 Cut(CutName.MEDIUM_LOW, ranked[2], ranked[3]),
             ]
         )
+        session.assign()
         out = workspace / "severity.json"
         session.export(out)
         loaded: dict[str, object] = json.loads(out.read_text(encoding="utf-8"))

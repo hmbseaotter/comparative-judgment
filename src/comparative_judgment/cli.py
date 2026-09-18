@@ -22,7 +22,7 @@ from collections.abc import Sequence
 from pathlib import Path
 
 from comparative_judgment.core.errors import ComparativeJudgmentError
-from comparative_judgment.core.models import CUT_ORDER, Cut, CutSeparation
+from comparative_judgment.core.models import CUT_ORDER, Cut, CutSeparation, ProposedBand
 from comparative_judgment.core.session import DEFAULT_APPEARANCE_TARGET, Session
 
 #: The location this project's own documentation and examples use. It is
@@ -169,6 +169,24 @@ def _print_separation(separation: Sequence[CutSeparation]) -> None:
         )
 
 
+def _proposal(proposal: ProposedBand) -> str:
+    """One proposal as `F-03  high -> medium`, naming both sides even when one is absent."""
+    assigned = proposal.assigned.value if proposal.assigned else "unassigned"
+    current = proposal.current.value if proposal.current else "no band"
+    return f"{proposal.finding_id:<16} {assigned} -> {current}"
+
+
+def _print_proposals(proposals: Sequence[ProposedBand]) -> None:
+    """Bands the current fit places other than as assigned (D36). Export refuses until assigned."""
+    if not proposals:
+        return
+    print()
+    print("proposed bands (assigned -> current fit; `assign` fixes them, `export` refuses until")
+    print("it does, and changing an assigned band needs --accept-rebanding):")
+    for proposal in proposals:
+        print(f"  {_proposal(proposal)}")
+
+
 def cmd_status(args: argparse.Namespace) -> int:
     session = _session(args, target=args.target)
     progress = session.progress()
@@ -188,6 +206,7 @@ def cmd_status(args: argparse.Namespace) -> int:
     elif progress.items_below_target:
         print(f"below target        {_listed(progress.items_below_target)}")
     _print_separation(progress.separation)
+    _print_proposals(progress.proposals)
 
     if progress.blocked_reason:
         print()
@@ -277,6 +296,58 @@ def cmd_bands(args: argparse.Namespace) -> int:
         print("  no comparison behind these, so banding them would report the prior")
         print("  rather than a judgment.")
     _print_separation(placement.separation)
+    _print_proposals(placement.proposals)
+    return 0
+
+
+def cmd_assign(args: argparse.Namespace) -> int:
+    """Fix each banded finding's band, so a refit proposes rather than relabels (D36)."""
+    if not args.rater:
+        # The assignment is the record of who fixed each band. A default would
+        # write "unnamed" into the one record whose purpose is to say who decided.
+        print(
+            "--rater is required to assign bands: the assignment is written into the "
+            "log as the record of who fixed each band, and an unattributed one cannot "
+            "say who decided",
+            file=sys.stderr,
+        )
+        return 1
+    session = Session.open(Path(args.store), rater_id=args.rater)
+    outcome = session.assign(accept_rebanding=args.accept_rebanding)
+
+    if outcome.refused:
+        print(
+            "REFUSED: the current fit moves band(s) that were already assigned.",
+            file=sys.stderr,
+        )
+        for proposal in outcome.rebanded:
+            print(f"  {_proposal(proposal)}", file=sys.stderr)
+        if outcome.first_time:
+            print(
+                f"  (and {len(outcome.first_time)} finding(s) banded for the first time, "
+                "which need no acceptance)",
+                file=sys.stderr,
+            )
+        print(file=sys.stderr)
+        print("A consumer may already cite the assigned bands. Re-run with", file=sys.stderr)
+        print(
+            "--accept-rebanding to accept the change -- recorded in the log with your",
+            file=sys.stderr,
+        )
+        print(
+            "rater id -- or add evidence until the fit agrees: compare further, or", file=sys.stderr
+        )
+        print("retract a mis-keyed judgment.", file=sys.stderr)
+        return 1
+
+    if not outcome.applied:
+        print("every banded finding is assigned as the current fit places it; wrote nothing")
+        return 0
+
+    for proposal in (*outcome.first_time, *outcome.rebanded):
+        print(f"{'re-banded' if proposal.assigned else 'assigned '}  {_proposal(proposal)}")
+    if outcome.record is not None:
+        print(f"recorded {len(outcome.record.bands)} band(s) under rater {outcome.record.rater_id}")
     return 0
 
 
@@ -381,6 +452,18 @@ def build_parser() -> argparse.ArgumentParser:
     bands_cmd = subparsers.add_parser("bands", help="show each finding's band")
     add_store(bands_cmd, rater=True, target=True)
     bands_cmd.set_defaults(func=cmd_bands)
+
+    assign = subparsers.add_parser(
+        "assign", help="fix each finding's band, so a refit proposes rather than relabels"
+    )
+    assign.add_argument("--store", required=True, help="path to the store directory")
+    assign.add_argument("--rater", help="who is fixing the bands (required; recorded in the log)")
+    assign.add_argument(
+        "--accept-rebanding",
+        action="store_true",
+        help="accept that the current fit changes an assigned band (recorded in the log)",
+    )
+    assign.set_defaults(func=cmd_assign)
 
     export = subparsers.add_parser("export", help="write the severity file")
     add_store(export, rater=True, target=True)

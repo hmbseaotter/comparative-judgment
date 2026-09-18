@@ -31,6 +31,7 @@ from typing import Final
 
 from comparative_judgment.core import bands, graph, pairing, severity
 from comparative_judgment.core.errors import (
+    BandsNotAssignedError,
     CutError,
     DisconnectedComparisonsError,
     NothingToJudgeError,
@@ -40,7 +41,9 @@ from comparative_judgment.core.findings import load_findings
 from comparative_judgment.core.fit import FitResult, fit
 from comparative_judgment.core.models import (
     CUT_ORDER,
+    AssignedBand,
     BandAssignment,
+    BandsAssigned,
     Comparison,
     Cut,
     CutName,
@@ -50,6 +53,7 @@ from comparative_judgment.core.models import (
     Outcome,
     PairForReview,
     Progress,
+    ProposedBand,
     Removal,
     RemovalAccepted,
     Retraction,
@@ -59,6 +63,11 @@ from comparative_judgment.core.models import (
 from comparative_judgment.core.store import Store
 
 DEFAULT_SESSION_ID: Final[str] = "session"
+
+#: The session id an assignment is recorded under. An assignment is not part of
+#: a comparison session any more than a load's acceptances are, which `load`
+#: records as "load"; this is the same convention for the same reason.
+ASSIGN_SESSION_ID: Final[str] = "assign"
 
 #: Re-exported so a front end can name the default without importing `pairing`.
 #: The seam is the whole contract: a presentation layer that reaches into a core
@@ -78,6 +87,32 @@ class Placement:
     #: them (D34): how a reader tells a band drawn between neighbors from one
     #: drawn across a widened gap.
     separation: tuple[CutSeparation, ...]
+    #: Every banded finding this fit places other than as assigned, or that has
+    #: no assignment yet (D36). Export refuses while any remains.
+    proposals: tuple[ProposedBand, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class AssignOutcome:
+    """What an assignment did, or refused to do (D36).
+
+    Structured like :class:`LoadOutcome`: the policy -- a first assignment is
+    free, changing an assigned band needs its own acceptance, and an assignment
+    with nothing new or changed writes nothing -- lives here, and only the
+    wording belongs to a front end.
+    """
+
+    applied: bool
+    #: Findings banded for the first time, which need no further acceptance.
+    first_time: tuple[ProposedBand, ...]
+    #: Assigned findings the current fit bands differently, or not at all.
+    rebanded: tuple[ProposedBand, ...]
+    record: BandsAssigned | None
+
+    @property
+    def refused(self) -> bool:
+        """Nothing was written because a change to an assigned band was not accepted."""
+        return not self.applied and bool(self.rebanded)
 
 
 @dataclass(frozen=True, slots=True)
@@ -325,7 +360,21 @@ class Session:
             placing=placing,
             blocked_reason=blocked,
             separation=separation,
+            proposals=() if blocked else self._proposals(),
         )
+
+    def _proposals(self) -> tuple[ProposedBand, ...]:
+        """The proposals band placement reports, or none where placement refuses.
+
+        Read from :meth:`place` rather than computed alongside it, so progress and
+        placement cannot disagree about which bands are proposed. Progress refuses
+        nothing, so a store that placement would refuse reports no proposals here;
+        `blocked_reason` or the component report already names why.
+        """
+        try:
+            return self.place().proposals
+        except (CutError, UnknownItemError, DisconnectedComparisonsError):
+            return ()
 
     def _unplaced(self, estimates: tuple[Estimate, ...], cuts: tuple[Cut, ...]) -> tuple[str, ...]:
         """Non-anchor findings still short of the placement quota.
@@ -434,7 +483,46 @@ class Session:
             unplaced=bands.unplaced(estimates),
             thresholds=cut_values,
             separation=bands.separation(cuts, assignments),
+            proposals=bands.proposals(assignments, self._store.assigned_bands()),
         )
+
+    def assign(self, *, accept_rebanding: bool = False) -> AssignOutcome:
+        """Fix every banded finding's band, under this session's rater (D36).
+
+        Refuses whatever :meth:`place` refuses, since there is nothing sound to
+        assign across an inverted cut or a disconnected graph. Otherwise:
+
+        - a finding banded for the first time is assigned with no further flag,
+          because nothing a consumer has cited changes;
+        - a finding whose assigned band the current fit moves, or removes, is
+          assigned only with `accept_rebanding` -- a flag of its own, for D22's
+          reason, so that the more consequential acceptance is not reachable by
+          habit;
+        - with nothing new or changed, nothing is written, for the reason a
+          retraction naming nothing is refused: an inert record still changes
+          the log hash, and the run id with it.
+
+        The record holds every banded finding, so the latest one alone is the
+        frozen state.
+        """
+        placement = self.place()
+        first = tuple(p for p in placement.proposals if p.assigned is None)
+        changed = tuple(p for p in placement.proposals if p.assigned is not None)
+        if not placement.proposals or (changed and not accept_rebanding):
+            return AssignOutcome(applied=False, first_time=first, rebanded=changed, record=None)
+
+        hashes = {f.id: f.content_hash for f in self._findings()}
+        record = self._store.append_assignment(
+            [
+                AssignedBand(
+                    finding_id=a.finding_id, band=a.band, content_hash=hashes[a.finding_id]
+                )
+                for a in placement.assignments
+            ],
+            rater_id=self._rater_id,
+            session_id=ASSIGN_SESSION_ID,
+        )
+        return AssignOutcome(applied=True, first_time=first, rebanded=changed, record=record)
 
     # -- the operations either front end needs -----------------------------
 
@@ -541,8 +629,27 @@ class Session:
         return self._store.cuts()
 
     def export(self, path: Path) -> Placement:
-        """Write the severity file, refusing whatever `place` refuses."""
+        """Write the severity file, refusing whatever `place` refuses.
+
+        And refusing, writing nothing, while any banded finding is unassigned or
+        the fit proposes a change to its assigned band (D36). So an exported band
+        is always an assigned one, and never sits beside a `theta` that places it
+        elsewhere, which the consuming harness refuses on load.
+        """
         placement = self.place()
+        if placement.proposals:
+            listed = "; ".join(
+                f"{p.finding_id}: {p.assigned.value if p.assigned else 'unassigned'} -> "
+                f"{p.current.value if p.current else 'no band'}"
+                for p in placement.proposals
+            )
+            msg = (
+                f"{len(placement.proposals)} band(s) are unassigned or proposed for revision "
+                f"on the current fit: {listed}. A consumer may already cite the assigned "
+                "bands, so none is exported until a rater assigns them; changing an "
+                "assigned band needs the re-banding acceptance"
+            )
+            raise BandsNotAssignedError(msg)
         severity.write_severity_file(
             path,
             assignments=placement.assignments,

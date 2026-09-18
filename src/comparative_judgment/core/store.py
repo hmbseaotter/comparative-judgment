@@ -11,7 +11,8 @@ Layout::
     <store>/
       meta.json          schema version, anchor-set version, created_at
       findings.jsonl     admitted findings, one per line
-      comparisons.jsonl  append-only; comparisons and retractions interleaved
+      comparisons.jsonl  append-only; comparisons, retractions, accepted revisions
+                         and removals, and band assignments, interleaved
       cuts.json          the three band cuts, as anchor pairs
 
 JSONL for the log because append-only is the whole point. JSON for machine state.
@@ -38,6 +39,9 @@ from comparative_judgment.core.errors import (
 )
 from comparative_judgment.core.models import (
     SCHEMA_VERSION,
+    AssignedBand,
+    Band,
+    BandsAssigned,
     Comparison,
     Cut,
     CutName,
@@ -76,8 +80,10 @@ KIND_COMPARISON: Final[str] = "comparison"
 KIND_RETRACTION: Final[str] = "retraction"
 KIND_REVISION: Final[str] = "revision"
 KIND_REMOVAL: Final[str] = "removal"
+KIND_ASSIGNMENT: Final[str] = "assignment"
 
 Clock = Callable[[], str]
+LogEntry = Comparison | Retraction | RevisionAccepted | RemovalAccepted | BandsAssigned
 
 
 def utc_now() -> str:
@@ -578,15 +584,68 @@ class Store:
         )
         return record
 
+    def append_assignment(
+        self, assigned: Sequence[AssignedBand], *, rater_id: str, session_id: str
+    ) -> BandsAssigned:
+        """Record that a rater fixed every banded finding's band (D36).
+
+        The whole set, in id order, so the record does not depend on how the
+        bands arrived and the latest one alone is the frozen state.
+        """
+        record = BandsAssigned(
+            seq=self._next_seq(),
+            bands=tuple(sorted(assigned, key=lambda b: b.finding_id)),
+            rater_id=rater_id,
+            session_id=session_id,
+            timestamp=self._clock(),
+        )
+        self._append_log(
+            {
+                "kind": KIND_ASSIGNMENT,
+                "seq": record.seq,
+                "bands": [
+                    {
+                        "finding_id": b.finding_id,
+                        "band": b.band.value,
+                        "content_hash": b.content_hash,
+                    }
+                    for b in record.bands
+                ],
+                "rater_id": record.rater_id,
+                "session_id": record.session_id,
+                "timestamp": record.timestamp,
+            }
+        )
+        return record
+
+    def assigned_bands(self) -> dict[str, Band]:
+        """Each finding's band as the most recent assignment fixed it (D36).
+
+        A finding whose removal was accepted after that assignment is left out:
+        the removal is itself an audited acceptance, so its assignment lapses
+        without a second one. Only an *accepted* removal does that. A finding that
+        left the document unjudged, because every comparison involving it had
+        been retracted, keeps its assignment, and the band it lost is proposed
+        like any other change.
+        """
+        entries = self.log()
+        latest = next((e for e in reversed(entries) if isinstance(e, BandsAssigned)), None)
+        if latest is None:
+            return {}
+        lapsed = {
+            e.finding_id for e in entries if isinstance(e, RemovalAccepted) and e.seq > latest.seq
+        }
+        return {b.finding_id: b.band for b in latest.bands if b.finding_id not in lapsed}
+
     def accepted_removals(self) -> tuple[RemovalAccepted, ...]:
         return tuple(e for e in self.log() if isinstance(e, RemovalAccepted))
 
     def accepted_revisions(self) -> tuple[RevisionAccepted, ...]:
         return tuple(e for e in self.log() if isinstance(e, RevisionAccepted))
 
-    def log(self) -> tuple[Comparison | Retraction | RevisionAccepted | RemovalAccepted, ...]:
+    def log(self) -> tuple[LogEntry, ...]:
         """Everything recorded, in the order it happened."""
-        out: list[Comparison | Retraction | RevisionAccepted | RemovalAccepted] = []
+        out: list[LogEntry] = []
         where = LOG_FILE
         for line in self._read_lines(self.path / LOG_FILE):
             raw = as_dict(_loads(line, where), where, error=StoreSchemaError)
@@ -702,6 +761,23 @@ class Store:
                         timestamp=stamp,
                     )
                 )
+            elif kind == KIND_ASSIGNMENT:
+                out.append(
+                    BandsAssigned(
+                        seq=seq,
+                        bands=tuple(
+                            self._assigned_band(entry, where)
+                            for entry in as_list(
+                                field(raw, "bands", where, error=StoreSchemaError),
+                                where,
+                                error=StoreSchemaError,
+                            )
+                        ),
+                        rater_id=rater,
+                        session_id=session,
+                        timestamp=stamp,
+                    )
+                )
             else:
                 msg = f"{where}: unknown log entry kind {kind!r}"
                 raise StoreSchemaError(msg)
@@ -788,6 +864,29 @@ class Store:
         return tuple(out)
 
     # -- helpers -----------------------------------------------------------
+
+    @staticmethod
+    def _assigned_band(entry: object, where: str) -> AssignedBand:
+        item = as_dict(entry, where, error=StoreSchemaError)
+        band = as_str(
+            field(item, "band", where, error=StoreSchemaError), where, error=StoreSchemaError
+        )
+        if band not in {b.value for b in Band}:
+            msg = f"{where}: an assignment names {band!r}, which is not a band"
+            raise StoreSchemaError(msg)
+        return AssignedBand(
+            finding_id=as_str(
+                field(item, "finding_id", where, error=StoreSchemaError),
+                where,
+                error=StoreSchemaError,
+            ),
+            band=Band(band),
+            content_hash=as_str(
+                field(item, "content_hash", where, error=StoreSchemaError),
+                where,
+                error=StoreSchemaError,
+            ),
+        )
 
     @staticmethod
     def _read_lines(path: Path) -> list[str]:

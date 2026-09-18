@@ -35,6 +35,7 @@ from comparative_judgment.core.models import (
     Cut,
     CutSeparation,
     Estimate,
+    ProposedBand,
 )
 
 
@@ -164,6 +165,25 @@ def assign_bands(
         )
         for e in estimates
         if e.appearances > 0
+    )
+
+
+def proposals(
+    assignments: Sequence[BandAssignment], assigned: Mapping[str, Band]
+) -> tuple[ProposedBand, ...]:
+    """Where the current fit disagrees with the bands last assigned (D36).
+
+    One entry per finding whose band differs between the two, in id order: banded
+    now and never assigned, assigned and banded differently now, or assigned and
+    banded no longer. A finding that is neither banded nor assigned is not here,
+    and neither is one whose two bands agree. Refuses nothing -- what to do about
+    a proposal is the caller's policy, and progress reports what export refuses.
+    """
+    current = {assignment.finding_id: assignment.band for assignment in assignments}
+    return tuple(
+        ProposedBand(finding_id=item, assigned=assigned.get(item), current=current.get(item))
+        for item in sorted(set(current) | set(assigned))
+        if assigned.get(item) != current.get(item)
     )
 
 

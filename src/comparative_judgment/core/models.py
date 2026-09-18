@@ -289,6 +289,56 @@ class BandAssignment:
 
 
 @dataclass(frozen=True, slots=True)
+class AssignedBand:
+    """One finding's band as an assignment fixed it (D36)."""
+
+    finding_id: str
+    band: Band
+    #: The text the band was assigned to, as the store held it then -- so the
+    #: assignment says what it banded, for D33's reason: a band without the text
+    #: behind it is a conclusion with its basis stripped off.
+    content_hash: str
+
+
+@dataclass(frozen=True, slots=True)
+class BandsAssigned:
+    """A record that a rater fixed every banded finding's band (D36).
+
+    Scale values are derived, so a refit can move a band, and a consumer that has
+    cited one should not find it relabeled without anybody deciding so. This
+    record is the decision. It lives in the same append-only log as comparisons,
+    so the log hash -- and the run id a severity file names -- covers the
+    assignment a file was exported under.
+
+    It holds the **whole banded set** rather than what changed, so the frozen
+    state is the latest record alone and no reader replays a chain of changes.
+    """
+
+    seq: int
+    bands: tuple[AssignedBand, ...]
+    rater_id: str
+    session_id: str
+    timestamp: str
+
+
+@dataclass(frozen=True, slots=True)
+class ProposedBand:
+    """A finding whose band on the current fit is not the one assigned to it (D36).
+
+    `assigned` is None for a finding banded for the first time, and `current` is
+    None for one that has lost its band because every comparison involving it was
+    retracted; both set and different is a re-banding. A proposal is answered by
+    accepting it or by adding evidence until the fit agrees. There is no rejecting
+    one, because a band the fit contradicts cannot be exported: the consuming
+    harness refuses a row whose band disagrees with its `theta`.
+    """
+
+    finding_id: str
+    assigned: Band | None
+    current: Band | None
+
+
+@dataclass(frozen=True, slots=True)
 class CutSeparation:
     """How far apart a cut's anchors sit on the current fit, and what lies between them.
 
@@ -373,3 +423,7 @@ class Progress:
     #: inverted or names a finding the fit does not hold: `blocked_reason` names
     #: that, and a gap across a broken boundary would describe nothing.
     separation: tuple[CutSeparation, ...] = field(default_factory=tuple)
+    #: Every banded finding the current fit places other than as assigned, or
+    #: that has no assignment yet (D36). The same list band placement reports,
+    #: read from it, and empty wherever placement refuses.
+    proposals: tuple[ProposedBand, ...] = field(default_factory=tuple)

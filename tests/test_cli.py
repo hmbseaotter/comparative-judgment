@@ -441,6 +441,11 @@ class TestFullFlow:
         assert "critical" in out and "low" in out
 
         target = workspace / "severity.json"
+        assert main(["export", "--store", store, "--target", "3", "--out", str(target)]) == 1, (
+            "export wrote bands nobody has assigned (D36)"
+        )
+        assert not target.exists()
+        assert main(["assign", "--store", store, "--rater", "you"]) == 0
         assert main(["export", "--store", store, "--target", "3", "--out", str(target)]) == 0
         payload = json.loads(target.read_text(encoding="utf-8"))
         assert {s["id"] for s in payload["severities"]} == {"F-01", "F-02", "F-03", "F-04"}
@@ -510,9 +515,10 @@ class TestFullFlow:
                 NOTE,
             ]
         )
+        assert main(["assign", "--store", store, "--rater", "you"]) == 0
         first, second = workspace / "a.json", workspace / "b.json"
-        main(["export", "--store", store, "--target", "3", "--out", str(first)])
-        main(["export", "--store", store, "--target", "3", "--out", str(second)])
+        assert main(["export", "--store", store, "--target", "3", "--out", str(first)]) == 0
+        assert main(["export", "--store", store, "--target", "3", "--out", str(second)]) == 0
         assert first.read_bytes() == second.read_bytes()
 
     def test_the_findings_file_is_never_written_to(self, workspace: Path) -> None:
@@ -537,7 +543,12 @@ class TestFullFlow:
                 NOTE,
             ]
         )
-        main(["export", "--store", store, "--target", "3", "--out", str(workspace / "s.json")])
+        assert main(["assign", "--store", store, "--rater", "you"]) == 0
+        # Asserted, because an export that refused would leave the source
+        # untouched too, and this test would pass on a run that never finished.
+        out = workspace / "s.json"
+        assert main(["export", "--store", store, "--target", "3", "--out", str(out)]) == 0
+        assert out.is_file()
         assert source.read_bytes() == before
 
 

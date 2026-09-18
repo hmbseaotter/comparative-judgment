@@ -15,6 +15,7 @@ cj cuts   --store .cj-store --critical-high F-01:F-03 \
                             --high-medium  F-03:F-02 \
                             --medium-low   F-02:F-05
 cj bands  --store .cj-store                     # each finding's band
+cj assign --store .cj-store --rater you         # fix those bands; a refit then only proposes
 cj export --store .cj-store --out severity.json
 ```
 
@@ -45,6 +46,16 @@ append-only log as the comparisons. So an acceptance **changes the log hash**, a
 naming that hash is tied to a history that includes it rather than one that conceals it. The rater
 id is required on those paths — an audit record that cannot say who is answering three of its four
 questions.
+
+A band, once assigned, stays put. Bands are derived from the fit, so a new comparison, a retraction
+or a re-set cut can move one — including one a consumer already cites. `cj assign` records every
+banded finding's band in the same append-only log, under a required rater id, and from then on a
+refit can only **propose** a different band: `status` and `bands` list each proposal as
+`assigned -> current`, and `export` refuses until `cj assign` accepts it. Changing a band that was
+already assigned takes `--accept-rebanding` as well, so the more consequential acceptance is not
+reachable by habit. To keep a band instead, add evidence until the fit agrees — compare further, or
+retract a mis-keyed judgment. The severity file is never written with an old band beside a scale
+value that places it elsewhere.
 
 ### What a findings document looks like
 

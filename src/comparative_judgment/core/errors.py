@@ -103,6 +103,16 @@ class FitDidNotConvergeError(ComparativeJudgmentError):
     """
 
 
+class BandsNotAssignedError(ComparativeJudgmentError):
+    """A severity file was requested while a band is unassigned or proposed for revision.
+
+    A refit can move a band, and a consumer may already cite the old one (D36).
+    Writing the new band would relabel it with nobody deciding so, and writing the
+    old one beside a `theta` that places it elsewhere is a row the consuming
+    harness refuses on load -- so the file is refused until a rater assigns.
+    """
+
+
 class CutError(ComparativeJudgmentError):
     """A band cut is missing, malformed, or its anchor pair has inverted.
 

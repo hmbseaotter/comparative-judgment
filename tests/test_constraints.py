@@ -989,6 +989,7 @@ class TestNoNetwork:
             == 0
         )
         assert main(["bands", "--store", store_path, "--target", "2"]) == 0
+        assert main(["assign", "--store", store_path, "--rater", "r"]) == 0
         assert (
             main(
                 [
