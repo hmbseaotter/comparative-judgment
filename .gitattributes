@@ -1,0 +1,5 @@
+# Store text as LF and check it out as LF, on every platform. A machine-wide
+# attributes file can say the same, but it does not travel with a clone, and a
+# Windows checkout would otherwise put CRLF on disk and break anything that
+# compares files byte for byte.
+* text=auto eol=lf
