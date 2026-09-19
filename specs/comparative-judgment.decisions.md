@@ -3,7 +3,7 @@
 - **Project:** comparative-judgment — severity scoring by pairwise comparison
 - **Identity:** A standalone tool that lets a rater assign defensible severity to findings by answering only "which of these two is worse?", never by picking a number on a scale.
 - **Spec:** `specs/comparative-judgment.md`
-- **Status:** see *Document status* at the end of this file for the current high-water mark, which is the one place it is maintained and the one place a test reads. This line carried its own copy until an audit filed it as C-9: a number written in two places is a number that goes stale in one of them, and this is the copy a reader meets first. The provenance is what the line is actually for. D1–D8 from the /specify session of 2026-08-28; D9 settled at emit, resolving a contradiction the linter surfaced; D10 at the cross-repository interface pass; D11–D13 at the phase-1 plan gate; D14–D15 at the sweep that followed; D16 during the build; D17–D18 at the post-build sweep; **D19–D26 after an independent audit of 0.5.0** — a session that had written none of the code, read the spec, the record and the source, then ran the tool against constructed inputs and reported forty-one findings; **D27–D32 from the audit that followed**, which read all three repositories; D33–D35 from the consuming harness, D33 and D34 at its request and D35 from its phase-4 audit; and D36 from that harness's OB-23.
+- **Status:** see *Document status* at the end of this file for the current high-water mark, which is the one place it is maintained and the one place a test reads. This line carried its own copy until an audit filed it as C-9: a number written in two places is a number that goes stale in one of them, and this is the copy a reader meets first. The provenance is what the line is actually for. D1–D8 from the /specify session of 2026-08-28; D9 settled at emit, resolving a contradiction the linter surfaced; D10 at the cross-repository interface pass; D11–D13 at the phase-1 plan gate; D14–D15 at the sweep that followed; D16 during the build; D17–D18 at the post-build sweep; **D19–D26 after an independent audit of 0.5.0** — a session that had written none of the code, read the spec, the record and the source, then ran the tool against constructed inputs and reported forty-one findings; **D27–D32 from the audit that followed**, which read all three repositories; D33–D35 from the consuming harness, D33 and D34 at its request and D35 from its phase-4 audit; D36 from that harness's OB-23; and **D37–D45 at the phase-2 plan gate**, each the owner's choice among options brought to it, with D41's sixth fork from an independent review of the plan and the choices recorded as the builder's made during the build.
 - **Legend:** ✅ decided · 🔶 open / revisit · ⏭️ deferred to a later phase
 
 <!-- rules-required-from: D9 -->
@@ -726,13 +726,14 @@ The convention makes a promise about *test* churn rather than about production s
 
 ---
 
-## Not checked — as of 0.11.0 @ D36
+## Not checked — as of 0.12.0 @ D45
 
 *Refreshed at the 0.11.0 sweep; the previous refresh was at 0.6.0 @ D26, after the independent audit
 of 0.5.0. That audit's observation still holds: of its forty-one findings none was a mistake in the
 mathematics, and the recurring failure was a guard narrower than the rule it enforced — green and
 blind at the same time. Entries marked* checked at this sweep *were measured against the tree; the
-rest are carried forward as they stood.*
+rest are carried forward as they stood. Amended by the phase-2 build at 0.12.0: entries marked*
+phase 2 *are new or changed by it, and the rest stand as the sweep left them.*
 
 - **This sweep's own scope.** It read the specification whole, D27–D36, and this section. It did not
   re-read D1–D26 against the code, and it read the frozen phase-1 build prompt only for its header,
@@ -741,11 +742,15 @@ rest are carried forward as they stood.*
 - **The terminal UI has not been watched by anyone this record knows of.** Its formatting,
   delegation and completion messages are tested; nobody has recorded watching it render. The
   consuming harness has placed findings since, and how it drove those sessions is not recorded here.
+  *Phase 2:* the build drove it headless once, through textual's own test harness, and read the
+  estimate falling and the clock ticking (D40) — the app running, but still no person watching it.
 - **The terminal UI does not show proposed bands** (D36). A rater placing a finding in `cj compare`
   is not told when that placement proposes a re-banding; it shows in `status` and `bands`, and as
   `export`'s refusal. Left as D34 left separation to `status`.
 - **`MAX_ITER` = 200,000 is extrapolated past n=100.** Measured at n=50, 75 and 100 and confirmed by
-  nobody since; the consuming harness's store holds 83 findings, inside the measured range.
+  nobody since; the consuming harness's store holds 83 findings, inside the measured range. *Phase
+  2:* a consistent near-rank bootstrap took 1,248, 1,380 and 1,433 iterations at n = 100, 200 and
+  400, far inside the cap; the complete-graph case the cap was set from was not re-measured past 100.
 - **`PLACEMENT_COMPARISONS` = 3 is a fixed count, not a measured optimum.** Adaptive placement is
   phase 3; until then every placement spends exactly three judgments even when two settle it.
 - **λ = 0.5 is conventional, not validated.** No sensitivity analysis has been run; that it does not
@@ -753,11 +758,16 @@ rest are carried forward as they stood.*
 - **The appearance target of 10 is an untested estimate of reliability.** Its arithmetic was
   measured — 50 findings at target 10 spent 251 comparisons, on the spec's ~250 — and whether ten
   appearances buys enough reliability, the half the number was chosen for, was not.
-- **Interactive latency is unmeasured as a requirement.** Measured once, by the 0.5.0 audit: 28 ms
+- ~~**Interactive latency is unmeasured as a requirement.** Measured once, by the 0.5.0 audit: 28 ms
   per keypress at 25 findings, 42 ms at 50 and 64 ms at 100, roughly linear in *n* because
   `next_pair()` and `record()` re-read the log and the findings index several times per judgment.
   D36 adds to that: `progress()` now reads its proposals from `place()`, which reads the log again
-  for the latest assignment. Not re-measured. A phase-2 requirement waiting to be written.
+  for the latest assignment. Not re-measured. A phase-2 requirement waiting to be written.~~
+  **Written at D45** (*phase 2*), with a test at n = 200. **What stays unchecked is the refit**: once
+  the parse was memoized, one refit per keypress is most of what is left — about 90 ms at n = 200 and
+  150 at n = 400 on a consistent rater, growing with n — and nothing past 200 is held by a test. The
+  budget is measured on the owner's machine and on CI's runners, not on whatever machine the held-out
+  store is judged on.
 - **The remaining O(n²) is in the session, not the store.** D19 removed the store's; the session's
   own remains, stated so the next reader does not conclude the session is linear.
 - **Concurrency beyond interleaved appends is unexplored.** D19 closes two handles appending in turn;
@@ -770,9 +780,33 @@ rest are carried forward as they stood.*
   knows how far text can drift before old judgments stop meaning anything, and the tool tells a rater
   only that the hashes differ, not how large the change was. An accepted revision also leaves a band's
   assignment standing (D36), so the frozen band carries across the same edit.
-- **`anchor_set_version` cannot be set by any caller.** Still `"1"`; reserved until anchor
+- ~~**`anchor_set_version` cannot be set by any caller.** Still `"1"`; reserved until anchor
   import/export lands in phase 2. A version that never changes is honest only while there is one
-  anchor set.
+  anchor set.~~ **Settled at D41** (*phase 2*): it is derived from the latest import record, and a
+  store that never imports keeps `"1"`.
+- **Standard errors are byte-identical on one machine, not across them** (*phase 2*, D39). Every sum
+  feeding the inverse runs in an order fixed by finding ids, and `numpy.linalg.inv` can still differ
+  between BLAS builds; nothing compares two machines.
+- **`REGION_COMPARISONS` = 20 is chosen, not measured** (*phase 2*, D38). Whether twenty decided
+  comparisons make a region's infit stable enough to rank is reasoned, like λ.
+- **What misfit sees on the designs this tool produces is untested** (*phase 2*, D38). A chain in
+  which every finding beats its next two fits level through its middle at the exact optimum, since
+  Bradley-Terry sees a finding only through its wins against its opponents' positions, so misfit
+  there reads position rather than consistency. The tests use random opponents. The bootstrap's own
+  near-rank pairing and placement's newcomer-against-anchor graphs were not examined for the same
+  effect, and a real rater's region ranking has not been read by anyone.
+- **Other raters' comparisons are pooled** (*phase 2*, D41(e)). An import brings them with their
+  rater ids, and the fit treats them as one rater's; separating them is phase 3's.
+- **Retracting an imported comparison is not built** (*phase 2*, D41(d)). `undo` skips them and no
+  other command retracts, so a mis-keyed judgment that arrived by import stays in the fit.
+- **Adopting outside cuts after bootstrapping on one's own is refused, not supported** (*phase 2*,
+  D41(f)). The placement loop cannot bridge such a store, and teaching it to was declined.
+- **A same-size rewrite of the findings index by another process, within one clock tick, escapes
+  the memo** (*phase 2*, D45). Every append changes the log's size, so the log is safe; the index is
+  rewritten whole by `load`, and two loads of equal-length text in one tick from two processes is
+  the case the stat key cannot tell apart.
+- **A phase-1 build refuses a store holding an import record** (*phase 2*, D41), as an unknown log
+  entry kind — named, and the reason not to open an imported store with an older `cj`.
 - **The venv runs Python 3.14; mypy targets 3.12, and CI runs 3.12 and 3.13.** Checked at this
   sweep: the venv is 3.14.5, in neither matrix row.
 - **The uncovered 2%**, checked at this sweep: the terminal UI's `compose` and its launch path, the
@@ -780,6 +814,11 @@ rest are carried forward as they stood.*
   placement's unplaced items and a bootstrap's below-target items, one blank line in `load`'s double
   refusal, the refusal branch of progress's separation report, and three OSError or missing-file
   branches in the store reachable only by revoking access mid-run. Every path D36 added is covered.
+  *Phase 2*, measured at 0.12.0: 98.8%, 26 of 2,127 statements. The same terminal-UI `compose` and
+  launch path, `quit`, the `compare` subcommand, the `__main__` guard, the same two `status` lines,
+  `load`'s blank line and progress's separation refusal, the store's missing-file and OSError
+  branches — among them `_stat_key` on a file that vanishes between checks — and nothing else. Every
+  path phase 2 added in `stats`, `anchors`, `diagnostics` and the session is covered.
 - ~~**Not swept this pass: the harness project.** Its specs were not re-read, and the scanner D15
   describes lives there and neither of us ran it.~~ **Superseded by D31**: a push here that changes a
   specification dispatches the harness's scanner, and the dispatched runs of 2026-09-15 and
@@ -787,11 +826,13 @@ rest are carried forward as they stood.*
   for instance, is recorded as its D190 and seen by no test in this repository.
 - **Nothing since 0.6.0 has been independently audited here.** D27–D32 came from a second audit,
   which read all three repositories; D33–D36 have been reviewed only by the sessions that wrote them
-  and by the consuming harness's own audits of its side.
+  and by the consuming harness's own audits of its side. *Phase 2:* its plan was reviewed by an agent
+  that read the code before any was written, which found the import's first write would have failed;
+  the built code has been reviewed by nobody but the session that wrote it.
 
 ## Document status
 
-Decisions **D1–D36** recorded. The most consequential is **D2**, which overturns the source design's central algorithmic choice; **D5** additionally settles a gap in a second project's specification, which must be amended to match.
+Decisions **D1–D45** recorded. The most consequential is **D2**, which overturns the source design's central algorithmic choice; **D5** additionally settles a gap in a second project's specification, which must be amended to match.
 
 ## D33 — A severity row was a conclusion with its basis stripped off
 
@@ -1052,7 +1093,394 @@ scenario asserting its own precondition so a comparison that moved nothing fails
 `TestTheProposalRule` holds the comparison itself. `tests/test_cli.py::TestFullFlow::test_cuts_then_bands_then_export`
 requires `export` to refuse before `assign` and succeed after.
 
+## D37 — Misfit is infit and outfit over decided comparisons, with ties reported beside them
+
+**Fork:** D2 chose Bradley-Terry because it reports an inconsistent rater as graded misfit, and
+phase 2 is where that promise is delivered. Which statistic, given that the fit excludes ties?
+
+**Options considered.**
+- **(A) Infit and outfit mean-squares** of standardized residuals over decided comparisons, ties
+  excluded and each finding's tie count and tie rate reported beside them.
+- **(B) (A) plus a per-finding count of 3-cycles** among decided comparisons, computed without the
+  model.
+- **(C) Infit and outfit with a tie counted as a half-win**, so a tie between findings the fit places
+  far apart reads as misfit.
+- **(D) Per-finding deviance**, the mean of −log p over each observed outcome.
+
+**Decision: (A)**, the owner's, at the phase-2 plan gate on 2026-09-18.
+
+**Why** — it is the comparative-judgment and Rasch standard, and its two halves separate two
+different complaints: infit weights each residual by how informative the comparison was, so one wild
+result against a distant finding moves it little, and outfit weights them equally, so that result is
+exactly what moves it. Both have expectation 1 under the model. (C) computes residuals for outcomes
+the fit excluded, so the statistic loses that expectation. (D) is one number with no way to tell a
+generally soft finding from one wild comparison. (B) was the real alternative: a triad on its own
+reads **exactly 1.00** on infit and outfit, because the model's best account of A>B, B>C, C>A is
+three equal findings and three coin flips, which it fits perfectly. A cycle count would flag that
+where misfit cannot. It was not chosen because the triad on its own is not what a rater's scale
+looks like: measured on constructed inputs, the same three findings judged consistently score 0.22,
+and a triad planted in an otherwise consistent ten-finding chain lifts its middle finding from 0.62 to
+1.15, the highest in the set, with all three of its findings ranking top three.
+
+**Consequences / caveats** — values are read **by rank, not against 1.0**: on sparse data a
+consistent rater reads well below 1, so a threshold at the model's expectation would call almost
+every finding sound. The acceptance criterion is asserted against the triad's consistent counterpart
+and inside a scale, the two places the statistic can see it. A comparison naming a finding the store
+no longer holds is skipped, as the fit skips it.
+
+**Rule** — enforced by test: `tests/test_diagnostics.py::TestMisfit` (the triad alone, the triad
+against its control, the planted triad reaching the top three, ties changing neither statistic, an
+orphaned comparison skipped) and `TestTheReport::test_the_triad_raises_its_findings_misfit_in_the_report`.
+Planted and observed: counting ties in the residuals fails `test_ties_change_neither_statistic`.
+
+## D38 — A soft region is an equal-evidence window along the scale, inside one component
+
+**Fork:** The diagnostics must name the *regions* of the scale with the highest misfit, not only
+per-finding values. How is the scale partitioned, and what ranks a region?
+
+**Options considered.**
+- **(A) Equal-evidence windows**: each decided comparison located at the mean scale value of its two
+  findings, the comparisons ordered by location and cut into consecutive groups of a declared size,
+  ranked by the group's infit.
+- **(B) The four bands**, available only once cuts exist.
+- **(C) Sliding windows of k neighboring findings**, keeping the top non-overlapping ones.
+- **(D) Fixed-width windows of scale value.**
+
+**Decision: (A)**, the owner's, on 2026-09-18, with `REGION_COMPARISONS` = 20.
+
+**Why** — equal evidence makes the ranking compare like with like: a region judged twice cannot top
+it on noise, which is what (D) invites, since its width is relative to a scale whose spread depends on
+λ and the data. (B) speaks in the consumer's terms and is coarse — four regions for a thousand
+findings — and gives nothing during a bootstrap, which is when a soft stretch of rubric is most worth
+finding. (C) needs two constants and a rule for removing overlaps. Twenty is a display granularity,
+not a threshold: it refuses nothing, and is recorded in *Not checked* as chosen rather than measured.
+
+**Choices that followed, recorded as mine.** Regions are built **within each connected component**
+and never across two (D21). A trailing group smaller than twenty merges into the one before it, so a
+component holding fewer than twenty decided comparisons is one region. A region's stretch runs from
+its first comparison's location up to the next region's first, the first open below and the last
+open above, so every tie and every cut threshold in a component lands in exactly one region. A tie
+between two components enters only the overall tie rate. Every region is listed, ranked, with no
+top-N cut; ties in infit break on component, then location.
+
+**Consequences / caveats** — **the first region test planted a triad in a chain and the triad did not
+rank first, and the statistic was right.** In a chain where each finding beats the next two, every
+mid-scale finding wins two and loses two, and Bradley-Terry sees a finding only through its wins
+against its opponents' positions: so the chain's middle fits level at the exact optimum — gradient
+about 1e-8 — and carries its order only at the ends. Region infit there reads position rather than
+consistency, and one reversed comparison moved its region by 0.04. The test now uses random opponents,
+which carry order along the whole scale, and plants a stretch judged inconsistently. That is a property
+of the model, not of the statistic, and it is recorded in *Not checked* for the designs this tool
+actually produces.
+
+**Rule** — enforced by test: `tests/test_diagnostics.py::TestSoftRegions`, including
+`test_a_stretch_judged_inconsistently_ranks_its_region_first`, `test_regions_never_span_two_components`
+and `test_ties_and_cuts_are_placed_in_the_region_holding_them`, and
+`tests/test_cli.py::TestPhaseTwoCommands::test_diagnostics_names_errors_misfit_tie_rate_and_ranked_regions`.
+
+## D39 — Standard errors come from the regularized information
+
+**Fork:** The fit carries λ = 0.5 pseudo-wins and pseudo-losses against a virtual opponent (D13), and
+that prior adds information. A standard error from the regularized information and one from the data
+alone differ. Which is reported?
+
+**Options considered.**
+- **(A) Regularized**: the square root of the diagonal of the inverse of the penalized
+  log-likelihood's negative Hessian — the objective the fit actually maximizes.
+- **(B) Data alone**: the pseudo-inverse of the data-only information, evaluated at the regularized
+  scale values.
+- **(C) Both**, side by side.
+
+**Decision: (A)**, the owner's, on 2026-09-18.
+
+**Why** — it describes the scale value the tool reports, which is that objective's maximum; a zero
+gradient there is asserted, so the Hessian is read at the right point. The prior makes the matrix
+positive definite whatever the comparison graph looks like, so it is inverted directly: no
+pseudo-inverse, no reference finding to choose, and every finding has a standard error — one nobody
+compared has exactly 2.0, the prior's alone, which says what it is. (B) is undefined for an unjudged
+finding, is computed per component, and at a finding that wins everything describes an estimator D13
+records as divergent. Measured on a consistent ten-finding chain, the two differ in two respects, not
+one: the prior's information matters most at the extremes (1.87 against 2.01 at the chain's ends), and
+the reference differs — the regularized one is measured from the prior's origin, the pseudo-inverse
+from the group's mean — which is why the middle goes the other way (1.12 against 1.07). (C) would put
+the second number on every row with the cases it cannot compute.
+
+**Consequences / caveats** — the **full covariance** stays available in core, since phase 3's
+stopping rule needs the variance of a finding's distance from a cut threshold, which is the mean of
+two anchors. It is never stored on a record: an array field would make a frozen record neither
+comparable nor hashable. `Estimate` carries no standard error, so the n-by-n inverse stays off the
+comparison loop's path. **Byte-identity is stated for two runs on one machine**, because a
+linear-algebra call can differ between BLAS builds; every sum feeding it runs in an order fixed by
+finding ids, so a reordered log gives the same bits.
+
+**Rule** — enforced by test: `tests/test_diagnostics.py::TestStandardErrors` — the fit sits at the
+maximum of the objective, the information equals a numerical Hessian of it, an unjudged or ties-only
+finding has exactly 2.0, a finding winning everything is finite, and the errors are byte-identical
+across two fits and across a reordered log — and
+`TestTheReport::test_the_file_is_byte_identical_across_two_writes_and_asks_for_lf`. Planted and
+observed: leaving the prior's term out of the information fails the Hessian test.
+
+## D40 — The remaining estimate is a bound while bootstrapping and exact while placing; the timer measures the sitting
+
+**Fork:** Two, both owed since D14. What does the comparisons-remaining estimate count in each mode?
+And what does a session timer measure, given that no session keeps a start or end record — the next
+pair is derived from the log?
+
+**Options considered.**
+- *The estimate.* **(A)** Bootstrapping, half the appearances still owed, rounded up, as a lower
+  bound; placing, each unplaced finding's shortfall against the quota, exactly. **(B)** An upper bound
+  in bootstrap. **(C)** A rate calibrated from comparisons spent per appearance gained.
+- *The timer.* **(A)** This sitting, in memory, from when the session opens. **(B)** Derived from the
+  log's timestamps. **(C)** A session-start record in the log. **(D)** The sitting plus cumulative
+  judging time derived from the log.
+
+**Decision: (A) and (A)**, the owner's, on 2026-09-18.
+
+**Why** — each bootstrap comparison supplies two appearances, so half the shortfall is what it takes
+if every pairing serves two needy findings; the pairing may give a needy finding a partner already at
+its target, so it is a lower bound, and it is said as one. Measured, fifty findings at a target of ten
+took 251 comparisons against a bound of 250. Each placement comparison pairs one newcomer with one
+anchor, so its count is exact. (C) is meaningless at the start of a bootstrap. For the timer, (B)
+cannot pick out a sitting — every CLI sitting records under the session id `session`, and an import
+keeps its comparisons' original timestamps — without inventing a gap threshold; (C) writes a record
+carrying no judgment, which still moves the log hash and the run id, the objection D26 refused inert
+retractions for; (D) adds a cap nobody chose. The sitting is also the unit fatigue is about, which is
+what the timer is for.
+
+**Consequences / caveats** — the estimate is a field of `Progress` and is None while something is
+blocked. The timer is `Session.elapsed_seconds()` on an injectable monotonic clock and is **not** in
+`Progress`, which stays a function of the store alone; the terminal UI ticks it once a second from the
+session's clock without reading the log. The TUI's clock starts from textual's `Ready` event, so
+`on_mount` stays callable without a running event loop. **Driven headless in scratch**, the live app
+showed `remaining: at least 12`, then 9 after three keys, 10 after an undo, and the clock moving from
+0:00 to 0:02 — the first time this record knows of the terminal UI being run, though not by a person.
+
+**Rule** — enforced by test: `tests/test_session.py::TestRemainingAndTheSittingClock` (the bound holds
+at every bootstrap step, the placement count falls by one per comparison to zero, a blocked batch has
+none, the clock writes nothing and leaves `Progress` unchanged),
+`tests/test_ui_and_edges.py::TestRemainingAndTheClock` and
+`tests/test_cli.py::TestPhaseTwoCommands::test_status_names_the_comparisons_left`.
+
+## D41 — The anchor-set file, and how an import merges
+
+**Fork:** An exported anchor set must carry the findings, comparisons and cuts needed to reuse it
+elsewhere, and importing it must report its bridging count. The phase-7 case in the consuming harness
+is the one it is built for: a fresh store for new findings imports the design set's anchors and
+places each newcomer against the imported cuts. Six forks, taken with the owner in order — five at
+the plan gate and the sixth from an independent review of the plan.
+
+**Options considered, and the decision on each** (the owner's, 2026-09-18).
+- **(a) What the file holds.** Chosen: every judged finding with its full text and content hash;
+  live comparisons only — decided and tied, retractions applied, among exported findings — with the
+  rater, session and timestamp they were made under and no sequence number; the three cuts with their
+  calibration notes; no assignments. The version is a sixteen-hex hash of that content (D23's shape),
+  and the source's log hash names the history. Rejected: the full history with retractions re-addressed;
+  the source's assigned bands as information; the six cut anchors alone, whose comparisons cannot
+  reproduce their positions.
+- **(b) Where imported findings live.** Chosen: in an `import` record in the log, which carries their
+  text and the cuts, with the comparisons appended as ordinary records tagged with an `origin`.
+  Rejected: the findings index with an origin field, which `load` rewrites whole on every run; a
+  separate file pinned only by a hash.
+- **(c) Merge rules.** Chosen: strict, checked in full before anything is written. The same identifier
+  and text is a shared finding. An identifier is refused, with both hashes named and no flag to
+  override, when this store holds it with other text, has accepted its removal (D22), still names it in
+  live comparisons though nothing holds it, or excluded it as a question. A complete earlier import of
+  the same version is refused, and so are cuts that differ from the store's own. A store without cuts
+  adopts the file's. A comparison the log already holds is skipped. `anchor_set_version` is **derived**
+  as the latest import record's version, so a store that never imports keeps `1` and its run ids.
+  Rejected: keeping the store's own differing cuts and importing anyway; importing only into empty
+  stores.
+- **(d) Undo.** Chosen: `undo` withdraws only a comparison made in this store. Rejected: leaving it,
+  which lets a misfired first keypress after an import retract another rater's judgment in this
+  rater's name; refusing, which blocks undoing the rater's own earlier judgments.
+- **(e) Other raters' comparisons.** Chosen: pooled in the fit, with their rater ids kept, so phase 3
+  can separate them. Rejected: refusing a file carrying another rater; listing raters in the report.
+- **(f) A store already judged on its own, without cuts** (from review). Chosen: the import is refused
+  when, after merging, any group of judged findings would hold no imported finding. Rejected: teaching
+  placement to bridge such groups, which changes phase-1 pairing; allowing it and reporting a block no
+  command could clear.
+
+**Why** — the log is the product, so what an import brings belongs in the history the log hash
+covers: the run id then names the import a file was banded under, and no later rewrite of the
+findings index can drop a finding another store's judgments were made against. Every refusal is the
+D18/D22 shape: two things that are not the same are refused by name rather than merged, and nothing a
+flag could wave through by habit is offered. (f) exists because the placement loop offers only
+findings short of their quota: a store whose findings were bootstrapped on their own already has three
+or more appearances each, so after adopting outside cuts it would sit reporting completion while
+`bands` refused it as disconnected, with no command able to bridge it.
+
+**Choices that followed, several from the review, recorded as mine.**
+- **The record is written first**, naming how many comparisons follow, then the comparisons, then the
+  cuts. So an interruption is exact — fewer origin-tagged comparisons than the record says, or no cuts
+  after an import — and while one stands, judging, undo, load, cuts, assignment and both exports refuse
+  by name, `progress` names it, and running the same import again completes it, writing the log an
+  uninterrupted import would have written.
+- **Imported comparisons have their own append path.** `append_comparison` checks every identifier
+  against the store's findings, which would refuse the not-yet-known ones.
+- **Duplicates are matched by count, not membership.** A rater can record the same pair with the same
+  outcome twice in one second, and those are two judgments: dropping one would give the importer a
+  different scale.
+- **Every file is split on LF alone.** `str.splitlines()` also splits on U+2028, U+2029 and U+0085,
+  which `json.dumps(ensure_ascii=False)` writes raw inside a string: a finding holding one was split in
+  two and refused as invalid JSON. That was a latent defect in the findings index; with finding text in
+  the log it would have been permanent.
+- **An unknown enum value in a store file is a named refusal**, not a `ValueError` escaping as a
+  traceback (D26).
+- **A merged state that would invert a cut is refused**, over whatever cuts the store will have after
+  the import.
+
+**Consequences / caveats** — `cj load` gains the mirror refusal: a document finding reusing an
+imported identifier with other text is refused by name, and a document finding identical to an
+imported one is one finding. A load's removal check covers the document's findings only. **A phase-1
+build refuses a store holding an import record** as an unknown log entry kind — a named refusal
+rather than a misreading, as D36's assignment record is. Retracting an imported comparison is not
+built, since `undo` skips them and there is no other retraction command. Adopting outside cuts after
+bootstrapping on one's own is refused rather than supported. An anchor-set file holds findings text
+and is exactly as sensitive as the store it came from.
+
+**Rule** — enforced by test: `tests/test_anchors.py` — `TestExport`, `TestImportIntoAnEmptyStore`,
+`TestPlacingAgainstImportedAnchors`, `TestSharedFindingsAndRoundTrips`, `TestImportRefusals` (every
+refusal leaves the store byte-identical), `TestAnchorSetFileRefusals`, `TestAnInterruptedImport`,
+`TestCompletingAnImportAgainstAChangedLog` and `TestTheImportRecord` — with
+`tests/test_store.py::TestLineSplitting`. Planted and observed, each caught by its test: `undo`
+retracting an imported comparison, the incomplete-import guard removed, the stranded-group refusal
+removed, duplicates matched by membership, and `splitlines` restored.
+
+## D42 — An import leaves every band to the rater
+
+**Fork:** D36 froze bands behind a rater's assignment. Does an import respect that?
+
+**Options considered.**
+- **(A) Yes**: an import writes no assignment; imported findings arrive as first-time proposals, and
+  assigned bands the refit moves arrive as re-banding proposals.
+- **(B) Carry the source's assignments** and write them as an assignment record on import.
+- **(C) Refuse to import into a store holding any assignment.**
+
+**Decision: (A)**, the owner's, on 2026-09-18.
+
+**Why** — (B) assigns bands with no rater's accepted assignment in this store, which is D36's bright
+line. (C) blocks importing into an established store for a case D36's machinery already handles:
+proposals are the current fit read against the latest assignment, so an import that moves a band
+produces a proposal with nothing new written.
+
+**Consequences / caveats** — after an import, `export` refuses until `cj assign` runs, and changing an
+assigned band still needs `--accept-rebanding`. The import's report says no band was assigned.
+
+**Rule** — enforced by test: `tests/test_anchors.py::TestFrozenBandsAcrossAnImport`, which asserts the
+proposals and refusals and states its own precondition — that the second import moved both bands — so
+an import that moved nothing fails rather than passes.
+
+## D43 — Under-bridged has no threshold
+
+**Fork:** The connectivity report must name the components that are under-bridged. A count below which
+a component is named is a threshold, and D34 declined to invent one for a similar question.
+
+**Options considered.**
+- **(A) No threshold**: for each imported set, its shared findings and its bridging comparisons, and
+  every component with its imported and local members; nothing new refused.
+- **(B) A declared count** below which a set is named under-bridged.
+- **(C) (A) plus the standard error of the offset** between the imported set's mean scale value and
+  the rest's.
+
+**Decision: (A)**, the owner's, on 2026-09-18.
+
+**Why** — D34's reasoning again: how many bridging comparisons are enough is the rater's judgment, and
+a line drawn between ordinary and too few would be a threshold nobody chose. Nothing needs refusing:
+while a set is wholly unbridged it is a separate component, and D21 already refuses `bands` and
+`export` across it. (C) is threshold-free and was the attractive alternative; it is one more statistic
+to explain, and nothing in this phase consumes it.
+
+**Choices that followed, recorded as mine.** A set's findings are those it added and those it shared.
+Its **bridging comparisons** are live decided comparisons between a finding it added and a finding not
+in the set, so newcomers placed against its anchors count and the number grows as placement proceeds.
+Into an empty store it is 0, which the report explains rather than leaves bare.
+
+**Rule** — enforced by test:
+`tests/test_anchors.py::TestImportIntoAnEmptyStore::test_it_imports_and_reports_its_bridging_count`,
+`TestPlacingAgainstImportedAnchors::test_newcomers_placed_against_imported_anchors_raise_the_bridging_count`,
+and `tests/test_cli.py::TestPhaseTwoCommands::test_an_anchor_set_moves_between_stores_with_its_bridging_count`,
+the phase's own condition run through the command line.
+
+## D44 — Diagnostics are a subcommand, and a file only where the caller names one
+
+**Fork:** Where do diagnostics surface — a subcommand, a terminal-UI pane, both — and in what file, if
+any, is a report written?
+
+**Options considered.**
+- **(A) `cj diagnostics --store S [--out FILE]`**, writing JSON only where `--out` names a path.
+- **(B) (A) plus a pane in the terminal UI.**
+- **(C) Folded into `cj status` and `cj fit`.**
+- **(D) Always written into the store.**
+
+**Decision: (A)**, the owner's, on 2026-09-18.
+
+**Why** — (B) puts an n-by-n inverse and the region pass on every keypress, which D45 is about. (C)
+leaves no file to diff between runs. (D) grows a store layout the specification pins with a derived
+file that can go stale beside the log. The severity file is not a candidate: its fields are enumerated
+in this specification and the consuming harness's and compared by the harness's scanner, so a field
+added there for diagnostics would break an interface to report what no consumer asked for.
+
+**Consequences / caveats** — the report is its own JSON (`diagnostics_schema_version` 1, LF, sorted
+keys) naming the log hash and anchor-set version it was computed from. Over a disconnected graph it
+reports the components rather than refusing, and over an inverted cut it names the cut and labels no
+region with a threshold. The terminal UI gains only the timer and the estimate, and `cj status` the
+estimate.
+
+**Rule** — enforced by test: `tests/test_cli.py::TestPhaseTwoCommands` (the report names standard
+errors, misfit, the tie rate and ranked regions; a disconnected store names its groups; a store before
+any comparison says there are no regions), `tests/test_diagnostics.py::TestTheReport`, and
+`tests/test_store.py::TestLineEndings::test_every_file_is_written_with_lf_whatever_the_platform`, which
+now covers the diagnostics report and the anchor-set file.
+
+## D45 — Interactive latency is a requirement, met by parsing once per change
+
+**Fork:** *Not checked* called interactive latency "a phase-2 requirement waiting to be written", and
+this phase adds work to every keypress. The consuming harness's phase 7 plans a larger held-out set,
+banded here in a separate store, possibly past the n = 100 the fit's cap was measured to. Is the
+requirement written now?
+
+**Options considered.**
+- **(A) Write it, with a test, and remove the dominant cost.**
+- **(B) Write it at a budget today's code already meets.**
+- **(C) Keep it in *Not checked*, re-measured.**
+- **(D) (A), and accelerate the fit.**
+
+**Decision: (A)**, the owner's, on 2026-09-18: a median keypress — record, next pair, progress — under
+250 ms at 200 findings and about a thousand comparisons of realistic input.
+
+**Why** — measured at the start of this phase, a keypress took 61, 91, 160 and about 280 ms at n = 25,
+50, 100 and 200, twice the 0.5.0 audit's figures, and a profile put about seventy percent of it in
+parsing the log roughly eight times per keypress and about twenty in the one refit. The parse was
+waste; the refit is by design, since the fit is never incremental. (B) records a number and fixes
+nothing. (C) leaves the held-out store to find out. (D) would move every existing store's scale values
+in their low digits, and with them exported `theta`, and needs D16's cap re-measured — a decision of
+its own.
+
+**Choices that followed, recorded as mine.** Each read of the log or findings index takes the file's
+size and modification time **first**, parses, and keeps the result under that key; the next read
+compares again, so another handle's write is seen — D19's rule about caching anything a second handle
+can change. **A handle's own append extends the memo rather than dropping it**, but only on proof: the
+memo matched the file just before the write, and the file grew by exactly the bytes written, which
+appends alone guarantee no one else wrote in between; any other outcome drops it. Without that, every
+keypress re-parsed the log once after its own append. The test's fixture is realistic in D16's sense —
+pairs near in rank and a rater who is not perfectly consistent, from a fixed seed — and asserts its
+own iteration count, so it cannot drift into the slow case or out of the realistic one and still pass.
+
+**Consequences / caveats** — measured after, on the same harness with a perfectly consistent rater
+(the slow case): 36, 43, 59, 92 and 149 ms at n = 25, 50, 100, 200 and 400. The test's fixture reads
+51 ms with the memo and 408 ms without it, against its budget of 250. The refit is now most of what is
+left, about 90 ms at n = 200 and 150 at n = 400, and it grows with n; that floor is recorded in *Not
+checked*. `append_comparison` now reads the log as well as the index, since an imported finding is a
+valid partner, so a caller appending thousands of records one by one pays a parse each: the right cost
+for a keypress, and the reason the latency fixture writes its log directly.
+
+**Rule** — enforced by test: `tests/test_latency.py::test_a_keypress_at_two_hundred_findings_stays_inside_the_budget`,
+with `tests/test_store.py::TestParseMemo` and `TestTheMemoAcrossOwnAppends`, whose interleaving test
+lands another handle's append between this handle's stat and its write. Planted and observed: a memo
+never re-validated, and one extended without the size proof, each fail their test; the latency test
+run against un-memoized parsing fails at 408 ms.
+
 
 Spec: `specs/comparative-judgment.md`. Build prompt: `specs/comparative-judgment.build-prompt.md` (phase 1, frozen); phase 2's is `specs/comparative-judgment.build-prompt.phase-2.md`.
 
-Any new fork encountered during the build is appended here in the same shape, and from **D9** onward each entry ends with a `**Rule**` line naming what enforces it. Numbering continues from **D37**. Both figures, and the gaplessness of the sequence between them, are asserted by `tests/test_constraints.py::test_the_decision_record_states_its_own_high_water_mark` — so this section is the maintained copy rather than a remembered one, and the header no longer keeps a second.
+Any new fork encountered during the build is appended here in the same shape, and from **D9** onward each entry ends with a `**Rule**` line naming what enforces it. Numbering continues from **D46**. Both figures, and the gaplessness of the sequence between them, are asserted by `tests/test_constraints.py::test_the_decision_record_states_its_own_high_water_mark` — so this section is the maintained copy rather than a remembered one, and the header no longer keeps a second.

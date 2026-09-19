@@ -1,7 +1,7 @@
 # specification: comparative-judgment — severity scoring by pairwise comparison
 
 ## metadata
-- Spec version: 0.11.0
+- Spec version: 0.12.0
 - Status: DRAFT
 - Last updated: 2026-09-18
 - Author(s): Saso Gale
@@ -13,9 +13,9 @@
 - Artifacts land in: the `comparative-judgment` repository root
 - Visibility: public (currently private, flipped when ready). The store path is always supplied by the caller — there is no implicit fallback — but the conventional location used by the documentation and examples is gitignored, so following the docs cannot cause an accidental commit. A general-purpose severity tool will be pointed at real production findings by someone, and a committing default is a trap.
 - Decision record: `specs/comparative-judgment.decisions.md`
-- Reproducibility: required, byte-identical — the same comparison log SHALL produce the same scale values and bands, and the same standard errors once phase 2 computes them (D14 deferred those, and their reproducibility is asserted at `[P2]`). This does not happen by accident: Bradley-Terry fitting is iterative, so it needs a fixed convergence tolerance, a fixed iteration cap, a deterministic item ordering, and deterministic tie-breaking.
+- Reproducibility: required, byte-identical — the same comparison log SHALL produce the same scale values and bands, and the same standard errors, which phase 2 computes (D39) and whose byte-identity is stated for two runs on one machine, since a linear-algebra call can differ between BLAS builds. This does not happen by accident: Bradley-Terry fitting is iterative, so it needs a fixed convergence tolerance, a fixed iteration cap, a deterministic item ordering, and deterministic tie-breaking.
 - Timestamp standard: UTC ISO-8601 with `Z` suffix, second precision.
-- Integrity: the comparison log is append-only (a retraction is a record, never a deletion). Every finding carries a content hash, so a load that would reinterpret judged text is refused until a human accepts it, and the acceptance is itself a record in the same log (D18); a judged finding *removed* from the document is refused the same way (D22). Every emitted severity file names the run id, the anchor-set version and the hash of the log it was computed from, so any result can be recomputed from the inputs it names. The run id is *derived* from those inputs rather than minted per export (D23), so it identifies the result and two exports over an unchanged history are byte-identical including it. The log's hash normalizes CRLF line endings to LF before hashing, and every file is written with LF, so the hash, the run id and the bytes do not depend on the platform that wrote the store (D35). A band, once assigned, is frozen by an assignment record in the same log (D36): a refit that would move it proposes the change rather than making it, and no severity file is written while a proposal stands unaccepted.
+- Integrity: the comparison log is append-only (a retraction is a record, never a deletion). Every finding carries a content hash, so a load that would reinterpret judged text is refused until a human accepts it, and the acceptance is itself a record in the same log (D18); a judged finding *removed* from the document is refused the same way (D22). Every emitted severity file names the run id, the anchor-set version and the hash of the log it was computed from, so any result can be recomputed from the inputs it names. The run id is *derived* from those inputs rather than minted per export (D23), so it identifies the result and two exports over an unchanged history are byte-identical including it. The log's hash normalizes CRLF line endings to LF before hashing, and every file is written with LF, so the hash, the run id and the bytes do not depend on the platform that wrote the store (D35). A band, once assigned, is frozen by an assignment record in the same log (D36): a refit that would move it proposes the change rather than making it, and no severity file is written while a proposal stands unaccepted. The anchor-set version a severity file names is the most recent anchor set imported into the store, read from its import record, and `1` for a store that never imports (D41); an import is recorded in the same log, carrying the text of every finding it adds, so the log hash and the run id cover it.
 
 ## outcome
 A rater assigns defensible severity to a set of findings by answering only *"which of these two is worse?"* — never by choosing a number on a scale. Measurable as: every finding in a batch receives a band; the number of **absolute** judgments required is exactly three (the band cuts) regardless of batch size; placing a finding against an established anchor set costs ~3 comparisons rather than ~log₂(n); re-running the fit over an unchanged comparison log reproduces identical scale values and bands byte for byte; and, from phase 2, the tool reports per finding a standard error and a misfit statistic locating where the rater's scale is soft — the half of this outcome D14 deferred, which the phase tags carried and this sentence did not.
@@ -24,18 +24,18 @@ A rater assigns defensible severity to a set of findings by answering only *"whi
 - [P1] **Core data model** — findings (stable id + content hash), comparisons (both item ids, winner or tie, rater id, session id, UTC timestamp), anchors, band cuts.
 - [P1] **Append-only comparison log** with resumable sessions and retraction-as-record.
 - [P1] **Regularized Bradley-Terry fit** by maximum likelihood (MM iteration), producing scale values with deterministic convergence.
-- [P2] **Per-item standard errors** from the Fisher information — needed by the diagnostics that consume them, not by band placement.
+- [P2] **Per-item standard errors** from the regularized Fisher information (D39) — needed by the diagnostics that consume them, not by band placement.
 - [P1] **Simple heuristic pair selection** — pair items whose current estimates are close.
 - [P1] **Band-cut setting** — exactly three absolute judgments, each made with findings visible on both sides.
 - [P1] **Cut calibration** against the written consequence definitions, pinning at least the top cut to an absolute statement so the relative scale acquires an origin.
 - [P1] **Band placement** against established cuts, targeting cut proximity rather than exact rank.
 - [P1] **Frozen bands** — a band is fixed by an audited assignment, and a refit proposes a change to it for a rater to accept rather than relabeling a finding the consuming harness already cites (D36).
 - [P1] **Terminal UI** — two findings side by side, single-keypress choice, undo, mark-as-tie, and appearance progress.
-- [P2] **Session timer and comparisons-remaining estimate** in the UI.
+- [P2] **Session timer and comparisons-remaining estimate** in the UI (D40).
 - [P1] **UI-agnostic session API** — `next_pair`, `record`, `undo`, `progress` and `estimates` for the comparison loop, and every other operation a front end performs, from loading findings to setting cuts, assigning bands and exporting (D24) — the only surface any front end may use.
 - [P1] **YAML findings reader** — each entry carrying a stable `id`, `observation`, `evidence` (a list, so fragments stay separate), `consequence`, `detectable_by` and `tier` — and a **severity-file writer** keyed by finding id.
-- [P2] **Diagnostics report** — per-item standard error, misfit statistics, tie rate, and the regions of the scale they identify as soft.
-- [P2] **Cross-corpus anchor import/export**, with a connectivity report naming under-bridged components.
+- [P2] **Diagnostics report** — per-item standard error, misfit statistics, tie rate, and the regions of the scale they identify as soft (D37, D38, D44).
+- [P2] **Cross-corpus anchor import/export**, with a connectivity report naming under-bridged components (D41–D43).
 - [P3] **Adaptive pair selection** and a confidence-based stopping rule.
 - [P3] **Multi-rater analysis** — per-rater scales, inter-rater agreement, and localization of the pairs raters disagree on.
 - [P4] **Web UI adapter** over the unchanged session API.
@@ -61,13 +61,13 @@ n/a (not an agent). Bright lines that are nonetheless real:
 - NEVER unattended: mutating the caller's findings file; deleting a comparison record; emitting a band for a finding with no comparison behind it; changing an assigned band without a rater's accepted assignment (D36).
 
 ## state & memory
-Persistent by design — the comparison log *is* the product, and the ordering is derived from it rather than owned. Store layout: findings index (id, content hash, text), an append-only log of comparisons, retractions, accepted revisions and removals, and band assignments, band-cut definitions, anchor-set version. No session keeps a cursor or a start and end record: the next pair is derived from the log, so a bootstrap resumes across days exactly where it stopped. Nothing is ever deleted; a retraction appends a record marking a prior comparison withdrawn.
+Persistent by design — the comparison log *is* the product, and the ordering is derived from it rather than owned. Store layout: findings index (id, content hash, text) holding the findings document's findings, an append-only log of comparisons, retractions, accepted revisions and removals, band assignments and anchor-set imports, band-cut definitions, anchor-set version. Findings an import adds live in its record in the log rather than in the index, so a load cannot drop them, and the comparisons it brings keep the rater, session and timestamp they were made under and name the anchor set they came from (D41). No session keeps a cursor or a start and end record: the next pair is derived from the log, so a bootstrap resumes across days exactly where it stopped, and the session timer phase 2 adds is held in memory for the sitting and never written (D40). Nothing is ever deleted; a retraction appends a record marking a prior comparison withdrawn. Parsing is memoized per change to a file, checked against the file's size and modification time on every read (D45).
 
 ## model & cost routing + determinism boundary
 - **Deterministic (plain code, NO LLM):** every single operation. Pair selection, the Bradley-Terry fit, standard errors, misfit statistics, band placement, cut calibration, tie handling, connectivity analysis, content hashing, log persistence, rendering data, file I/O.
 - **Requires judgment (LLM):** **nothing.** This is a permanent architectural property, not a phase-one simplification. The tool exists to make *human* severity judgment reliable, and its output is the ground truth against which an LLM judge is later measured. Putting a model inside it would make the measuring instrument depend on the thing being measured — and the governing rule is that every layer of judging must bottom out in something deterministic or human, never in another unvalidated model.
 - **Type & value discipline:** `mypy --strict` across the package; frozen dataclasses for every record type; `typing.Final` for constants; tuples for fixed collections. "type-check passes" is an acceptance criterion.
-- **Cost guardrails:** the scarce resource is human comparisons, not tokens. The tool SHALL report comparisons spent, so a rater sees the cost as it accrues rather than discovering it afterwards; the *estimate* of comparisons remaining, which is what lets a rater decide when to stop, is phase 2 (D14).
+- **Cost guardrails:** the scarce resource is human comparisons, not tokens. The tool SHALL report comparisons spent, so a rater sees the cost as it accrues rather than discovering it afterwards; the *estimate* of comparisons remaining, which is what lets a rater decide when to stop, is phase 2's (D14, D40): a lower bound while bootstrapping, exact while placing.
 
 ## constraints
 - Stack: Python 3.12+, `uv` with a committed `uv.lock` pinning exact versions, `pytest`, `mypy --strict`, `ruff`, `textual` for the TUI, `PyYAML`, `numpy` for the fit.
@@ -103,6 +103,7 @@ Persistent by design — the comparison log *is* the product, and the ordering i
 ### event-driven (WHEN — triggered by an action)
 - WHEN [P1] the fit is run over an unchanged comparison log, the system SHALL produce identical scale values and bands, using a fixed convergence tolerance, a fixed iteration cap and a deterministic item ordering.
 - WHEN [P2] standard errors are computed, they SHALL be reproducible under the same conditions as the scale values.
+- WHEN [P2] standard errors are computed, the system SHALL take them from the regularized information — the negative Hessian of the penalized likelihood the fit maximizes, λ's virtual opponent included — SHALL report one for every finding, an unjudged finding's being the prior's alone, and SHALL state their byte-identity as holding across two runs on one machine (D39).
 - WHEN [P1] the fit is run, the system SHALL apply a symmetric prior of λ pseudo-wins and λ pseudo-losses per item (λ = 0.5) against a virtual opponent at the scale origin, so that an item winning or losing all of its comparisons still receives a finite scale value, and SHALL state λ in its documentation rather than only in code.
 - WHEN [P1] a rater records a comparison, the system SHALL persist it before presenting the next pair.
 - WHEN [P1] a rater retracts a comparison, the system SHALL append a retraction record and SHALL NOT delete the original.
@@ -126,13 +127,19 @@ Persistent by design — the comparison log *is* the product, and the ordering i
 - WHEN [P1] a severity file is written, the system SHALL record on **every row** the text it scored and the evidence behind it: `content_hash`, `appearances` and `informative`, alongside `id`, `severity` and `theta`. **A band on its own is a conclusion with its basis stripped off**, and the two halves fail differently. Without `content_hash` a finding edited after export keeps a band describing wording nobody compared, and only a person re-running `cj load` finds out — which is what happened on 2026-09-07, when a repository-wide spelling pass in the consuming project edited three judged findings and nothing noticed for four days. Without `appearances` and `informative` two rows that look identical can rest on very different evidence: a tie is a judgment this tool keeps and the fit excludes, so ten appearances with eight ties is a band placed on two results, and that is the row whose position moves furthest when one more comparison arrives. `schema_version` became `2` with this requirement, because the consumer's contract tolerates extra fields and therefore cannot tell a file that predates them from a tool that never wrote them.
 - WHEN [P1] a session is resumed, the system SHALL restore the exact position in the batch and SHALL report comparisons already spent.
 - WHEN [P2] anchors are imported from another store, the system SHALL report how many comparisons bridge the imported set to the existing one.
+- WHEN [P2] anchors are imported, the system SHALL require an explicit rater identifier, SHALL validate the whole file and the merge before writing anything, and SHALL refuse by name, leaving the store byte-identical: a file that is malformed, whose version is not the hash of its content, whose finding text does not hash to its stated content hash, or that carries a question-tier finding; an anchor set already imported; an identifier this store holds with other text, has accepted the removal of, still names in live comparisons without holding, or excluded as a question; cuts that differ from the store's own; a merge that would invert a cut; and a merge that would leave any group of judged findings without an imported member, which the placement loop could never bridge (D41).
+- WHEN [P2] anchors are imported, the system SHALL record the import in the log before the comparisons it brings, naming how many follow and carrying the text of every finding it adds; SHALL keep each comparison's rater, session and timestamp; SHALL skip a comparison the log already holds, matched by count rather than by membership; SHALL adopt the set's cuts only where the store has none; and SHALL assign no band — imported findings arrive as first-time proposals, and assigned bands the refit moves arrive as re-banding proposals (D41, D42).
+- WHEN [P2] an import has been interrupted part-way, the system SHALL refuse every judgment, undo, load, cut, assignment and export by name until the same import is run again, and SHALL then complete it as an uninterrupted import would have.
+- WHEN [P2] a findings document reuses the identifier of a finding an import added, with other text, the system SHALL refuse the load by name and SHALL offer no acceptance for it.
+- WHEN [P2] a rater undoes a judgment, the system SHALL withdraw only a comparison made in this store, never one an import brought.
 
 ### state-driven (WHILE — true for the duration of a state)
 - WHILE [P1] a comparison session is running, the system SHALL display comparisons spent.
-- WHILE [P2] a comparison session is running, the system SHALL additionally display an estimate of comparisons remaining (D14).
+- WHILE [P2] a comparison session is running, the system SHALL additionally display an estimate of comparisons remaining (D14) — while bootstrapping, half the appearances still owed against the target, rounded up and shown as a lower bound; while placing, each unplaced finding's shortfall against the placement quota, exactly; and none while blocked — and SHALL display the elapsed time of the sitting, measured from when the session opened and never written to the store (D40).
 - WHILE [P1] placing a finding against established cuts, the system SHALL select pairs by proximity to a cut rather than by position in a full ordering.
 - WHILE [P1] no cuts have been established, the system SHALL select pairs so as to produce a total order over the current batch, targeting a configured number of appearances per item (default 10) and reporting each item's progress against it.
-- WHILE [P2] reporting diagnostics, the system SHALL emit per-item standard errors, misfit statistics and the tie rate.
+- WHILE [P2] reporting diagnostics, the system SHALL emit per-item standard errors, misfit statistics and the tie rate, the misfit statistics being infit and outfit mean-squares of standardized residuals over decided comparisons, with ties excluded from them and reported beside them as each finding's tie count and tie rate (D37).
+- WHILE [P2] reporting connectivity, the system SHALL give for each imported anchor set the findings it added, those it shared and its bridging comparisons — live decided comparisons between a finding it added and a finding outside it — and every connected component of judged findings with its imported and local members, and SHALL refuse nothing on that account (D43).
 - WHILE [P1] a session is running, the system SHALL display comparisons spent and per-item appearance progress.
 - WHILE [P1] reporting progress for a batch, the system SHALL report the mean comparisons spent per finding placed and the mean appearances per item, so the cost model's own estimates are measured in use rather than assumed.
 - WHILE [P1] cuts are set and none is inverted, the system SHALL report for every cut, in progress, band placement and the severity file, the gap between its two anchors on the current fit and the banded findings strictly between them, most severe first, and SHALL NOT refuse on that account. A pair that inverts means nothing; a pair that drifts apart still means something, and the findings between it are banded by the midpoint rather than by any judgment against the boundary, which is how placing one finding re-banded three others in the consuming project (D34). How far apart is too far is left to the rater. `schema_version` is `3` from this requirement.
@@ -156,8 +163,9 @@ Persistent by design — the comparison log *is* the product, and the ordering i
 - IF [P1] the caller supplies no store path, the system SHALL fail with a named error rather than defaulting to a path inside the repository.
 
 ### optional feature (WHERE — behind a flag / config)
-- WHERE [P2] a diagnostics report is requested, the system SHALL identify the regions of the scale with the highest misfit.
-- WHERE [P2] an anchor set is exported, the system SHALL include the findings, their comparisons and the band-cut definitions needed to reuse it elsewhere.
+- WHERE [P2] a diagnostics report is requested, the system SHALL identify the regions of the scale with the highest misfit: each decided comparison located at the mean scale value of its two findings, and within each connected component the comparisons cut in location order into regions of twenty, a trailing remainder merging into the region before it, each named by its span, its findings and any cut threshold it holds, and all ranked by infit (D38).
+- WHERE [P2] a diagnostics report is requested with an output path, the system SHALL write it as its own JSON file, never into the severity file, naming the log hash and anchor-set version it was computed from (D44).
+- WHERE [P2] an anchor set is exported, the system SHALL include the findings, their comparisons and the band-cut definitions needed to reuse it elsewhere: every judged finding with its text and content hash, every live comparison among them with its rater, session and timestamp, and the three cuts with their calibration notes; SHALL name the set by a hash of that content; and SHALL refuse wherever band placement refuses (D41).
 - WHERE [P3] adaptive selection is enabled, the system SHALL choose the pair that most reduces estimated uncertainty and SHALL stop once an item's band is settled to the configured confidence.
 - WHERE [P3] more than one rater has contributed, the system SHALL report per-rater scales and the pairs on which raters disagree.
 
@@ -165,6 +173,7 @@ Persistent by design — the comparison log *is* the product, and the ordering i
 - Security: the system SHALL make no network request, and SHALL write only beneath paths supplied by the caller. [P1]
 - Privacy: the repository SHALL gitignore the conventional store location used by its documentation and examples, and the README SHALL state that findings text may be sensitive. [P1]
 - Performance: a fit over 1,000 findings and 10,000 comparisons SHALL complete in under five seconds on a developer machine. [P1]
+- Performance: a keypress in a running session — recording a judgment, deriving the next pair and reporting progress — SHALL take a median under 250 ms at 200 findings and about a thousand comparisons of realistic input: pairs near in rank, from a rater who is not perfectly consistent (D45). [P2]
 - Error handling / observability: the system SHALL report comparisons spent and each item's progress against its target. [P1] The estimate of comparisons remaining and the elapsed session time — which are what let a rater judge fatigue against progress — are phase 2, because D14 moved both. [P2]
 - Reproducibility: two fits over the same log SHALL be byte-identical, and so SHALL two severity files exported over an unchanged log, anchor set and set of cuts, run id included: the run id is derived from those inputs rather than minted (D23), so nothing is carved out as run metadata. [P1]
 
@@ -212,6 +221,9 @@ Persistent by design — the comparison log *is* the product, and the ordering i
 - [ ] [P2] A running session displays an estimate of comparisons remaining and elapsed session time.
 - [ ] [P1] A completed batch reports mean comparisons per finding placed and mean appearances per item, and those figures are compared against the spec's ~3 and ~10 estimates.
 - [ ] [P2] A diagnostics run names the specific scale regions with the highest misfit, not merely per-item values.
+- [ ] [P2] An exported anchor set imported into an empty store reproduces the source's scale values bit for bit, adopts its cuts, and becomes the store's anchor-set version.
+- [ ] [P2] Placing newcomers against imported anchors raises the reported bridging count by one per decided comparison.
+- [ ] [P2] An import writes no band assignment: imported findings are first-time proposals, a later import that moves an assigned band proposes the change, and `export` refuses until `assign` accepts.
 - [ ] [P3] Adaptive selection reaches the same bands as the phase-1 heuristic on the same batch using measurably fewer comparisons.
 - [ ] [P3] With two raters present, per-rater scales are reported and the pairs they disagree on are listed.
 
@@ -226,6 +238,13 @@ Persistent by design — the comparison log *is* the product, and the ordering i
 - [ ] [P1] A tie is recorded, excluded from the fit, and counted in the tie rate.
 - [ ] [P1] A deliberately intransitive triad (A>B, B>C, C>A) is accepted without error rather than rejected, and leaves the items it involves indistinguishable on the scale.
 - [ ] [P2] That same triad raises the misfit statistic for the items it involves.
+- [ ] [P2] A stretch of the scale judged inconsistently ranks its region first in the diagnostics.
+- [ ] [P2] An unjudged finding's standard error is the prior's alone, 2.0, and the information the standard errors invert equals a numerical Hessian of the fit's own objective.
+- [ ] [P2] Every anchor-set import refusal leaves the store byte-identical.
+- [ ] [P2] An import interrupted part-way blocks every write by name, and running it again completes it with the log an uninterrupted import would have written.
+- [ ] [P2] A judgment recorded twice in one second travels in an anchor set as two judgments.
+- [ ] [P2] Undo after an import withdraws only a comparison made in this store.
+- [ ] [P2] The estimate of comparisons remaining never exceeds what a bootstrap goes on to spend, and while placing falls by one per comparison to zero.
 - [ ] [P1] An item that wins every one of its comparisons receives a finite scale value, and the fit converges within its iteration cap rather than reaching it.
 - [ ] [P1] A cut round-trips as an ordered pair of findings, and its threshold is recomputed from current scale values rather than stored as a number.
 - [ ] [P1] A refit that inverts a cut's anchor pair reports that cut by name.
@@ -255,6 +274,8 @@ Persistent by design — the comparison log *is* the product, and the ordering i
 - [ ] [P1] `.gitignore` covers the conventional store location used by the documentation, present in the first commit.
 - [ ] [P1] `uv.lock` pins exact resolved versions; no dependency is expressed only as a floor.
 - [ ] [P1] A fit over 1,000 findings and 10,000 comparisons completes in under five seconds.
+- [ ] [P2] A median keypress at 200 findings and about a thousand comparisons of realistic input stays under 250 ms.
+- [ ] [P2] The diagnostics report and the anchor-set file ask for LF, and the severity file's fields and `schema_version` are unchanged.
 - [ ] [P1] Record types are frozen dataclasses and module constants are `typing.Final`, asserted by a test that attempts mutation and expects failure.
 - [ ] [P1] The TUI reaches the core only through the session interface, asserted by a scan for imports of core internals from presentation modules.
 - [ ] [P1] The README states that findings text may be sensitive, that the store path is always explicit, and that the conventional location is gitignored.
@@ -275,6 +296,7 @@ Persistent by design — the comparison log *is* the product, and the ordering i
 - Goal: the tool becomes a rubric-improvement instrument rather than only a scoring aid.
 - Includes: per-item misfit and standard-error reporting, tie-rate reporting, soft-region identification, anchor import/export, connectivity reporting; and the two D14 moved here alongside the standard errors — the session timer and the comparisons-remaining estimate — which its acceptance criterion named while this list did not.
 - Done when: an intransitive triad is visible as elevated misfit, and an anchor set moves between stores with its bridging count reported.
+- **Built at 0.12.0, 2026-09-18**, to the nine decisions taken at its plan gate (D37–D45). Each `[P2]` criterion is held by the test its decision's Rule line names; the triad and the anchor-set move were also run through the command line and the terminal UI was driven headless, and the full suite, `mypy --strict`, `ruff check` and `ruff format --check` pass.
 
 ### phase 3 — efficiency and multiple raters
 - Goal: the properties that matter at 1,000 findings and with more than one rater.
@@ -291,10 +313,10 @@ Persistent by design — the comparison log *is* the product, and the ordering i
 ## assumptions
 - [ ] Python 3.12+ with the harness's toolchain (`uv`, `pytest`, `mypy --strict`, `ruff`) is right here too — risk if wrong: a second toolchain to maintain for one author on one machine.
 - [ ] `textual` is a suitable TUI library for side-by-side panes with keyboard input — risk if wrong: the TUI needs a different library, though the UI-agnostic core makes that a contained change.
-- [ ] ~10 appearances per item gives adequate Bradley-Terry reliability at this scale — risk if wrong: more comparisons needed than budgeted, making the bootstrap longer than the ~250 estimate. **Mitigated**: the tool measures actual appearances per item, so the first bootstrap validates or refutes this rather than leaving it an untested claim.
+- [ ] ~10 appearances per item gives adequate Bradley-Terry reliability at this scale — risk if wrong: more comparisons needed than budgeted, making the bootstrap longer than the ~250 estimate. **Mitigated**: the tool measures actual appearances per item, so the first bootstrap validates or refutes this rather than leaving it an untested claim. From phase 2 the diagnostics report each finding's standard error, which measures the precision this assumption is about directly (D39); nobody has yet read one off a real bootstrap.
 - [ ] ~3 comparisons suffice to place a finding against three cuts — risk if wrong: placement costs more and the 1,000-finding projection of ~3,000 comparisons rises. **Mitigated**: the tool measures actual comparisons per finding placed.
 - [ ] Ties are rare enough that excluding them from the fit does not bias the scale — risk if wrong: Davidson's extension is needed sooner than phase 3.
-- [ ] A single rater is the near-term reality, with the rater field present but unexercised — risk if wrong: multi-rater analysis is needed before phase 3.
+- [ ] A single rater is the near-term reality, with the rater field present but unexercised — risk if wrong: multi-rater analysis is needed before phase 3. From phase 2 an anchor-set import can bring another rater's comparisons into a store; they keep their rater ids and are pooled in the fit as one rater's, and separating them stays phase 3's (D41).
 - [ ] Severity bands remain the four defect levels, with the `Question` tier outside the scale entirely — risk if wrong: the three-cut model and its "exactly three absolute judgments" claim both change.
 
 ---
@@ -315,6 +337,8 @@ Persistent by design — the comparison log *is* the product, and the ordering i
 
 **Settled for the consuming project's OB-23 (D36).** A band is frozen by an assignment record in the append-only log, appended by `cj assign` under a rater's name, and a refit that would move it proposes the change instead of making it. Changing an assigned band needs its own flag, and `export` refuses while any band is unassigned or proposed for revision. It refuses rather than exporting the old band, because the consuming harness refuses a band that disagrees with its `theta`; so the severity file's shape is unchanged.
 
+**Settled at the phase-2 plan gate (D37–D45).** Misfit is infit and outfit over decided comparisons, ties reported beside them rather than inside them; a triad on its own reads as the model's expectation, so it is seen against its consistent counterpart and inside a scale (D37). A soft region is twenty decided comparisons in scale order within one connected component, ranked by infit, so every region rests on the same evidence (D38). Standard errors come from the regularized information, the fit's own objective, so every finding has one and an unjudged finding's is the prior's alone (D39). The remaining-comparisons estimate is a lower bound while bootstrapping and exact while placing, and the timer measures the sitting in memory, since a start record would move the log hash (D40). An anchor set carries judged findings, their live comparisons and the cuts, named by a hash of its content; an import is recorded in the log before the comparisons it brings, refuses every collision by name, can be completed if interrupted, never lets `undo` retract another store's judgment, and refuses a merge the placement loop could not bridge (D41). An import assigns no band (D42). Bridging is reported per set and per component with no threshold (D43). Diagnostics are a subcommand writing their own file only where asked, leaving the severity file untouched (D44). Interactive latency is a requirement, met by parsing each file once per change rather than eight times per keypress (D45).
+
 ---
 
 ## emitted artifacts
@@ -323,6 +347,17 @@ n/a (build-required — see the build prompt)
 ---
 
 ## changelog
+- 0.12.0 (2026-09-18): **phase 2 built — diagnostics and portability (D37–D45).**
+  - **What was added:**
+    - `cj diagnostics` reports each finding's standard error, from the regularized information; its infit and outfit over decided comparisons; the tie rate; and the scale's soft regions, twenty decided comparisons each within one component, ranked by infit. With `--out` it writes its own JSON file.
+    - `cj export-anchors` and `cj import-anchors` move an anchor set between stores and report its bridging count. The import is recorded in the log before its comparisons, refuses every collision by name, can be completed if interrupted, and assigns no band.
+    - `cj status` and the terminal UI show the comparisons-remaining estimate, and the UI shows the sitting's elapsed time.
+    - Interactive latency is a requirement, and parsing each file once per change took a keypress at n = 200 from about 280 ms to 92.
+  - **Requirements** were written for all of it, and twelve `[P2]` criteria were added. The anchor-set version is now settable, by import; a store that never imports keeps `1` and its run ids.
+  - **Two latent defects were found and fixed on the way:**
+    - The store split lines with `str.splitlines()`, so a finding whose text held U+2028 was cut in two and refused as invalid JSON.
+    - An unknown enum value in a store file escaped as a `ValueError` rather than a named refusal.
+  - **Unchanged:** the severity file's fields and `schema_version`, so neither enumerated list moves and the harness's scanner has nothing new to compare. A phase-1 build refuses a store holding an import record as an unknown log entry kind.
 - 0.11.0 (2026-09-18): **sweep at D36**, the first since 0.7.0 @ D33. Six passages had been overtaken by later decisions and not updated where they stood. The reproducibility requirement still carved the run id out of byte-identity, which D23 made unnecessary and a happy-path criterion here contradicts. The session-interface requirement and its in-scope line listed only the comparison loop's five operations, which D24 widened to the whole tool. *State & memory* said sessions record their own start and end, which nothing does, since the next pair is derived from the log. *Tools & permissions* named a fit output the tool never writes. *Decisions made* stopped at D26. And D34, which declined the freeze as the larger change, carried no note that D36 built it. The bright lines gain changing an assigned band without a rater's accepted assignment. *Not checked* is refreshed and re-stamped, the decision record's provenance line reaches D36, and the frozen phase-1 build prompt no longer states a decision count of its own, the defect C-9 names. One redundancy is recorded rather than fixed, since a sweep keeps reorganization separate: displaying comparisons spent is required in three places. No behavior changed.
 - 0.10.1 (2026-09-18): **D36 built.** `cj assign --rater` appends the assignment record, `--accept-rebanding` is required to change an assigned band, `status` and `bands` list every proposal as `assigned -> current`, and `export` refuses by name while any remains. No requirement changed; the version moves because D36's Rule line now names its tests, and the phase-1 and *Not checked* notes that said "not built" are superseded. Seven existing test sites exported without assigning, and now assign first. One of them, the check that the findings file is never written to, never asserted that its export succeeded: after this change it passed on an export that refused and wrote nothing, which is the guard this repository keeps finding green and blind. It now asserts the export, as does the byte-identity check beside it.
 - 0.10.0 (2026-09-18): **a band, once assigned, is frozen, and a refit proposes rather than relabels (D36).** D2 promised this in its Consequences and nothing specified it; D34 declined to build it; the consuming harness registered it as its OB-23, owed here before the next comparison is recorded into its store. A new `assign` command appends an assignment record — the rater, a timestamp, and every banded finding's identifier, band and content hash — to the same append-only log as the comparisons, so the log hash and the run id cover it. A band the current fit places elsewhere is a proposed revision, reported by `status` and `bands`; changing an assigned band, including to no band, needs a re-banding flag of its own; and `export` refuses while any band is unassigned or proposed. Refusing is the only form a freeze can take here: the harness refuses a row whose band disagrees with its `theta` (its D171), so an old band cannot be exported beside a new fit. The severity file's fields and `schema_version` do not change. **Specified, not built**: phase 1 reopens on seven new criteria, and until they pass, a refit still relabels without saying so.

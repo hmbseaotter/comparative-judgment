@@ -17,11 +17,17 @@ cj cuts   --store .cj-store --critical-high F-01:F-03 \
 cj bands  --store .cj-store                     # each finding's band
 cj assign --store .cj-store --rater you         # fix those bands; a refit then only proposes
 cj export --store .cj-store --out severity.json
+cj diagnostics --store .cj-store                # where the scale is soft; --out writes JSON
+cj export-anchors --store .cj-store --out .cj-store/anchors.json
+cj import-anchors --store .cj-store --anchors ../design-set/.cj-store/anchors.json --rater you
 ```
 
 In the comparison loop: `←`/`a` and `→`/`d` choose, `t` marks a pair too close to call, `u` undoes
 the last judgment, `q` quits. Nothing needs saving — every judgment is on disk before the next pair
-appears, so quitting and resuming is indistinguishable from never having stopped.
+appears, so quitting and resuming is indistinguishable from never having stopped. The top line shows
+comparisons spent beside an estimate of those remaining: *at least* N while bootstrapping, since a
+needy finding's nearest partner may already be at its target, and exactly N while placing against
+cuts. Below it, the time this sitting has taken. `cj status` shows the same estimate.
 
 The note on the top cut is required, and it is the one thing here that is not a comparison. A
 pairwise scale has no origin: the ordering can be internally perfect while the whole set sits a band
@@ -143,6 +149,57 @@ midpoint rather than by anything you judged against that boundary. The tool repo
 nothing for it (an inverted cut is refused, a widened one is yours to judge), and the list is
 computed from the rows in the same file, so a consumer can check it from `theta` alone.
 
+### Where the scale is soft
+
+`cj diagnostics` reports, for every finding, its scale value, its **standard error**, and its
+**infit** and **outfit** — how surprising its decided comparisons were to the fit, weighted by how
+informative each was, and unweighted. It reports the **tie rate**, overall and per finding, and it
+names the **soft regions**: the scale cut into stretches of twenty decided comparisons each, ranked
+by infit, each named by its span, the findings in it and any cut boundary it straddles. The top of
+that list is where your judgments disagree with each other most, which is where a rubric rule is
+most worth writing.
+
+Read the misfit values **by rank, not against 1.0**. Their expectation under the model is 1, but on
+sparse data a consistent rater scores well below it. And a cycle on its own — A worse than B, B worse
+than C, C worse than A — reads exactly 1.0, because the model's best account of it is three equal
+findings; it shows up as misfit once other judgments place those findings apart. Standard errors
+include the λ prior below, so an uncompared finding's is 2.0: the prior speaking, and saying so.
+`--out report.json` writes the same report as JSON; nothing in the store changes.
+
+### Moving an anchor set between stores
+
+An **anchor set** is a store's judged findings, the comparisons among them and its three cuts, in
+one file. Importing it into another store lets that store place its own findings against the
+imported cuts in about three comparisons each, instead of bootstrapping a second scale.
+
+```bash
+# in the project whose scale is established -- the file goes inside the ignored store:
+cj export-anchors --store .cj-store --out .cj-store/anchors.json
+
+# in the project whose findings are to be placed:
+cj init   --store .cj-store
+cj load   --store .cj-store --findings findings.yaml
+cj import-anchors --store .cj-store --anchors ../design-set/.cj-store/anchors.json --rater you
+cj compare --store .cj-store --rater you     # places the new findings against the cuts
+```
+
+The import reports its **bridging comparisons** — decided comparisons between a finding the set
+added and one outside it. Into a fresh store that is 0, and placing the new findings raises it; `cj
+diagnostics` reports it thereafter, per imported set and per connected group. No threshold is
+applied: while nothing bridges the set it is a separate group, and `bands` and `export` refuse.
+
+- **The file holds findings text.** Treat it as you treat the store.
+- **An import assigns no band.** Every imported finding arrives as a first-time proposal, and `cj
+  assign` fixes it, as for any other.
+- **Everything is checked before anything is written.** A file edited after export no longer matches
+  its version and is refused, and so is an identifier this store holds with other text, an anchor set
+  already imported, and cuts that differ from the store's own. So is an import into a store that has
+  already judged findings of its own and has no cuts: the placement loop could never join those to
+  the imported anchors. Import first, then judge.
+- **An interrupted import is finished by running it again.** Until it is, every other write refuses
+  by name.
+- **Comparisons keep the rater who made them**, and `undo` never withdraws one that came by import.
+
 ---
 
 
@@ -170,6 +227,9 @@ descriptions**.
   by name rather than writing somewhere you did not choose.
 - **The conventional location used by these docs and examples is `.cj-store/`**, and it is
   gitignored — so following the examples cannot produce a file that quietly wants committing.
+- **An anchor-set file carries the same text**, since it exists to move findings between stores.
+  It is written only where you name; the examples put it inside `.cj-store/`, so it is ignored with
+  the store.
 - Nothing is transmitted anywhere. The tool makes **no network request of any kind**, and a test
   fails the build if a socket is opened.
 
