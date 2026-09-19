@@ -1,7 +1,7 @@
 # specification: comparative-judgment — severity scoring by pairwise comparison
 
 ## metadata
-- Spec version: 0.10.1
+- Spec version: 0.11.0
 - Status: DRAFT
 - Last updated: 2026-09-18
 - Author(s): Saso Gale
@@ -9,7 +9,7 @@
 - Build class: build-required
 - Role: n/a — a scoring utility; no persona sharpens it. Its one stance-like property is that it never asks for a number, only for a comparison, and that is a requirement rather than a voice.
 - Produced by: /specify @ f72b756
-- Last swept: 2026-09-11 @ 0.7.0 @ D33 — trigger: ~8–10 accrued decisions, before publishing, or at phase completion, whichever comes first (change-based, never calendar-based)
+- Last swept: 2026-09-18 @ 0.11.0 @ D36 — trigger: ~8–10 accrued decisions, before publishing, or at phase completion, whichever comes first (change-based, never calendar-based)
 - Artifacts land in: the `comparative-judgment` repository root
 - Visibility: public (currently private, flipped when ready). The store path is always supplied by the caller — there is no implicit fallback — but the conventional location used by the documentation and examples is gitignored, so following the docs cannot cause an accidental commit. A general-purpose severity tool will be pointed at real production findings by someone, and a committing default is a trap.
 - Decision record: `specs/comparative-judgment.decisions.md`
@@ -32,7 +32,7 @@ A rater assigns defensible severity to a set of findings by answering only *"whi
 - [P1] **Frozen bands** — a band is fixed by an audited assignment, and a refit proposes a change to it for a rater to accept rather than relabeling a finding the consuming harness already cites (D36).
 - [P1] **Terminal UI** — two findings side by side, single-keypress choice, undo, mark-as-tie, and appearance progress.
 - [P2] **Session timer and comparisons-remaining estimate** in the UI.
-- [P1] **UI-agnostic session API** — `next_pair`, `record`, `undo`, `progress`, `estimates` — the only surface any front end may use.
+- [P1] **UI-agnostic session API** — `next_pair`, `record`, `undo`, `progress` and `estimates` for the comparison loop, and every other operation a front end performs, from loading findings to setting cuts, assigning bands and exporting (D24) — the only surface any front end may use.
 - [P1] **YAML findings reader** — each entry carrying a stable `id`, `observation`, `evidence` (a list, so fragments stay separate), `consequence`, `detectable_by` and `tier` — and a **severity-file writer** keyed by finding id.
 - [P2] **Diagnostics report** — per-item standard error, misfit statistics, tie rate, and the regions of the scale they identify as soft.
 - [P2] **Cross-corpus anchor import/export**, with a connectivity report naming under-bridged components.
@@ -56,12 +56,12 @@ n/a (not an agent) — invoked on demand. Sessions are resumable, so a long boot
 
 ## tools & permissions
 n/a (not an agent). Bright lines that are nonetheless real:
-- Filesystem: reads a findings file and a store directory; writes the log, the fit output and severity files. Nothing outside paths given by the caller.
+- Filesystem: reads a findings file and a store directory; writes the store — its log, findings index, cuts and metadata — and severity files. Nothing outside paths given by the caller.
 - Network: **none, ever.** The tool makes no outbound request of any kind.
-- NEVER unattended: mutating the caller's findings file; deleting a comparison record; emitting a band for a finding with no comparison behind it.
+- NEVER unattended: mutating the caller's findings file; deleting a comparison record; emitting a band for a finding with no comparison behind it; changing an assigned band without a rater's accepted assignment (D36).
 
 ## state & memory
-Persistent by design — the comparison log *is* the product, and the ordering is derived from it rather than owned. Store layout: findings index (id, content hash, text), append-only comparison log, band-cut definitions, anchor-set version. Sessions record their own start/end so a bootstrap can be resumed across days. Nothing is ever deleted; a retraction appends a record marking a prior comparison withdrawn.
+Persistent by design — the comparison log *is* the product, and the ordering is derived from it rather than owned. Store layout: findings index (id, content hash, text), an append-only log of comparisons, retractions, accepted revisions and removals, and band assignments, band-cut definitions, anchor-set version. No session keeps a cursor or a start and end record: the next pair is derived from the log, so a bootstrap resumes across days exactly where it stopped. Nothing is ever deleted; a retraction appends a record marking a prior comparison withdrawn.
 
 ## model & cost routing + determinism boundary
 - **Deterministic (plain code, NO LLM):** every single operation. Pair selection, the Bradley-Terry fit, standard errors, misfit statistics, band placement, cut calibration, tie handling, connectivity analysis, content hashing, log persistence, rendering data, file I/O.
@@ -94,7 +94,7 @@ Persistent by design — the comparison log *is* the product, and the ordering i
 - The system SHALL [P1] identify every finding by a stable identifier together with a content hash of its text.
 - The system SHALL [P1] contain no call to any language model, and SHALL declare no dependency that makes one.
 - The system SHALL [P1] confine all business logic to a core package that imports no user-interface library.
-- The system SHALL [P1] expose exactly one session interface to presentation layers, providing next-pair, record, undo, progress and estimates.
+- The system SHALL [P1] expose exactly one session interface to presentation layers, covering the whole tool rather than only the comparison loop: next-pair, record, undo, progress and estimates, and the loading, cut, band, assignment and export operations (D24).
 - The system SHALL [P1] return structured presentation data from that interface, and SHALL NOT return preformatted display strings.
 - The system SHALL [P1] pass `mypy --strict` with no ignored errors, declaring record types as frozen dataclasses and constants as `typing.Final`.
 - The system SHALL [P1] assign a band to a finding only where at least one recorded comparison involves that finding.
@@ -166,7 +166,7 @@ Persistent by design — the comparison log *is* the product, and the ordering i
 - Privacy: the repository SHALL gitignore the conventional store location used by its documentation and examples, and the README SHALL state that findings text may be sensitive. [P1]
 - Performance: a fit over 1,000 findings and 10,000 comparisons SHALL complete in under five seconds on a developer machine. [P1]
 - Error handling / observability: the system SHALL report comparisons spent and each item's progress against its target. [P1] The estimate of comparisons remaining and the elapsed session time — which are what let a rater judge fatigue against progress — are phase 2, because D14 moved both. [P2]
-- Reproducibility: two fits over the same log SHALL be byte-identical, excluding a run-metadata envelope holding exactly the run id and timestamps. [P1]
+- Reproducibility: two fits over the same log SHALL be byte-identical, and so SHALL two severity files exported over an unchanged log, anchor set and set of cuts, run id included: the run id is derived from those inputs rather than minted (D23), so nothing is carved out as run metadata. [P1]
 
 ## failure & escalation
 - Recoverable: a mis-keyed comparison is retracted by the rater and appended as a retraction; a session interrupted at any point resumes from its persisted position.
@@ -311,6 +311,8 @@ Persistent by design — the comparison log *is* the product, and the ordering i
 
 **Settled after an independent audit of 0.5.0 (D19–D26).** The sequence number is re-read at every append rather than cached, because a cached counter desynchronizes the moment a second handle appends and a retraction then withdraws every record sharing that number (D19). Creating a store refuses to overwrite one, since the three band cuts are the only absolute judgments the tool asks for and were being destroyed by a command that exited zero (D20). Connectivity is enforced rather than merely reported: `bands` and `export` refuse across components never compared (D21). A judged finding removed from the document is refused exactly as a changed one is, with its own acceptance flag so the more consequential acceptance is not reachable by habit (D22). The run id is derived from the log hash, the anchor set and the cuts, so it identifies the *result* and needs no exclusion carved out of the byte-identity guarantee (D23). The session seam covers the whole tool rather than only the comparison loop, and the scan enforcing it is derived from the package layout rather than listed — the previous scan was green because its universe excluded the file that broke the rule (D24). The most severe cut requires a calibration note, because a pairwise ordering can be internally perfect while the whole set sits a band too high (D25). Every operation validates before it writes, and every parse boundary raises a named refusal (D26).
 
+**Settled after phase 1 (D27–D35).** The repository uses US spelling, matching the consuming harness across the interface they share, and a guard holds it by the shapes of the other variety rather than by a list of the words one sweep happened to find (D27, D29). Once cuts exist, finishing a batch means every newcomer is placed, and that is a second field rather than a changed meaning for the first (D28). Acceptance criteria carry no ticks, because nothing computes them; a criterion is worth the test its decision's Rule names (D30). A push here that changes a specification asks the harness to run its interface scanner, since the scanner lives there (D31). Tests may reach past the session seam and front ends may not, and the check reads attributes as well as imports (D32). Every severity row carries the content hash it scored and how many comparisons, and how many decided ones, stand behind it (D33). Every cut reports how far apart its anchors have drifted and which findings lie between them, refusing nothing for it (D34). The log's hash normalizes line endings and every writer writes LF, so the hash and the run id do not depend on the platform that wrote the store (D35).
+
 **Settled for the consuming project's OB-23 (D36).** A band is frozen by an assignment record in the append-only log, appended by `cj assign` under a rater's name, and a refit that would move it proposes the change instead of making it. Changing an assigned band needs its own flag, and `export` refuses while any band is unassigned or proposed for revision. It refuses rather than exporting the old band, because the consuming harness refuses a band that disagrees with its `theta`; so the severity file's shape is unchanged.
 
 ---
@@ -321,6 +323,7 @@ n/a (build-required — see the build prompt)
 ---
 
 ## changelog
+- 0.11.0 (2026-09-18): **sweep at D36**, the first since 0.7.0 @ D33. Six passages had been overtaken by later decisions and not updated where they stood. The reproducibility requirement still carved the run id out of byte-identity, which D23 made unnecessary and a happy-path criterion here contradicts. The session-interface requirement and its in-scope line listed only the comparison loop's five operations, which D24 widened to the whole tool. *State & memory* said sessions record their own start and end, which nothing does, since the next pair is derived from the log. *Tools & permissions* named a fit output the tool never writes. *Decisions made* stopped at D26. And D34, which declined the freeze as the larger change, carried no note that D36 built it. The bright lines gain changing an assigned band without a rater's accepted assignment. *Not checked* is refreshed and re-stamped, the decision record's provenance line reaches D36, and the frozen phase-1 build prompt no longer states a decision count of its own, the defect C-9 names. One redundancy is recorded rather than fixed, since a sweep keeps reorganization separate: displaying comparisons spent is required in three places. No behavior changed.
 - 0.10.1 (2026-09-18): **D36 built.** `cj assign --rater` appends the assignment record, `--accept-rebanding` is required to change an assigned band, `status` and `bands` list every proposal as `assigned -> current`, and `export` refuses by name while any remains. No requirement changed; the version moves because D36's Rule line now names its tests, and the phase-1 and *Not checked* notes that said "not built" are superseded. Seven existing test sites exported without assigning, and now assign first. One of them, the check that the findings file is never written to, never asserted that its export succeeded: after this change it passed on an export that refused and wrote nothing, which is the guard this repository keeps finding green and blind. It now asserts the export, as does the byte-identity check beside it.
 - 0.10.0 (2026-09-18): **a band, once assigned, is frozen, and a refit proposes rather than relabels (D36).** D2 promised this in its Consequences and nothing specified it; D34 declined to build it; the consuming harness registered it as its OB-23, owed here before the next comparison is recorded into its store. A new `assign` command appends an assignment record — the rater, a timestamp, and every banded finding's identifier, band and content hash — to the same append-only log as the comparisons, so the log hash and the run id cover it. A band the current fit places elsewhere is a proposed revision, reported by `status` and `bands`; changing an assigned band, including to no band, needs a re-banding flag of its own; and `export` refuses while any band is unassigned or proposed. Refusing is the only form a freeze can take here: the harness refuses a row whose band disagrees with its `theta` (its D171), so an old band cannot be exported beside a new fit. The severity file's fields and `schema_version` do not change. **Specified, not built**: phase 1 reopens on seven new criteria, and until they pass, a refit still relabels without saying so.
 - 0.9.0 (2026-09-14): **the log's hash does not depend on the platform that wrote it (D35).** Every writer named no line ending, so a store written on Windows carried CRLF on every line, and `log_hash` hashed the log's raw bytes: the same judgments recorded on another platform named a different `comparison_log_hash` and `run_id`, which the consuming harness's phase-4 audit found on its own store. The hash now normalizes CRLF to LF before hashing, keeping the ordering and retractions it was chosen to cover, and every writer writes LF. A store written with CRLF names a different hash under this version than under 0.8.0, and re-exporting over an unchanged log moves `comparison_log_hash` and `run_id` and nothing else.

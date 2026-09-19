@@ -5,8 +5,9 @@
 > record of what the build was actually told. Two places below were overtaken during the build and
 > are marked inline; the current statement of every requirement is
 > `specs/comparative-judgment.md`, and the reasoning is in
-> `specs/comparative-judgment.decisions.md` (now D1–D26, of which D1–D15 existed when this was
-> written). Whoever builds phase 2 should read the spec and the decision record, not this file.
+> `specs/comparative-judgment.decisions.md` (D1–D15 existed when this was written; the record's
+> *Document status* keeps the current count). Whoever builds phase 2 should read the spec and the
+> decision record, not this file.
 
 ## Recommended build-time session settings
 - **Model:** Claude Opus 5. **Effort:** `xhigh` (Extra).

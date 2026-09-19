@@ -3,7 +3,7 @@
 - **Project:** comparative-judgment — severity scoring by pairwise comparison
 - **Identity:** A standalone tool that lets a rater assign defensible severity to findings by answering only "which of these two is worse?", never by picking a number on a scale.
 - **Spec:** `specs/comparative-judgment.md`
-- **Status:** see *Document status* at the end of this file for the current high-water mark, which is the one place it is maintained and the one place a test reads. This line carried its own copy until an audit filed it as C-9: a number written in two places is a number that goes stale in one of them, and this is the copy a reader meets first. The provenance is what the line is actually for. D1–D8 from the /specify session of 2026-08-28; D9 settled at emit, resolving a contradiction the linter surfaced; D10 at the cross-repository interface pass; D11–D13 at the phase-1 plan gate; D14–D15 at the sweep that followed; D16 during the build; D17–D18 at the post-build sweep; **D19–D26 after an independent audit of 0.5.0** — a session that had written none of the code, read the spec, the record and the source, then ran the tool against constructed inputs and reported forty-one findings; **D27 from the audit that followed**, which read all three repositories.
+- **Status:** see *Document status* at the end of this file for the current high-water mark, which is the one place it is maintained and the one place a test reads. This line carried its own copy until an audit filed it as C-9: a number written in two places is a number that goes stale in one of them, and this is the copy a reader meets first. The provenance is what the line is actually for. D1–D8 from the /specify session of 2026-08-28; D9 settled at emit, resolving a contradiction the linter surfaced; D10 at the cross-repository interface pass; D11–D13 at the phase-1 plan gate; D14–D15 at the sweep that followed; D16 during the build; D17–D18 at the post-build sweep; **D19–D26 after an independent audit of 0.5.0** — a session that had written none of the code, read the spec, the record and the source, then ran the tool against constructed inputs and reported forty-one findings; **D27–D32 from the audit that followed**, which read all three repositories; D33–D35 from the consuming harness, D33 and D34 at its request and D35 from its phase-4 audit; and D36 from that harness's OB-23.
 - **Legend:** ✅ decided · 🔶 open / revisit · ⏭️ deferred to a later phase
 
 <!-- rules-required-from: D9 -->
@@ -726,26 +726,68 @@ The convention makes a promise about *test* churn rather than about production s
 
 ---
 
-## Not checked — as of 0.6.0 @ D26
+## Not checked — as of 0.11.0 @ D36
 
-*Refreshed after an independent audit of 0.5.0 by a session that had written none of this code. Three earlier entries were retired because the audit resolved them: cut inversion has now been observed through the front end rather than only constructed in tests, the uncovered-lines list was measured rather than recalled, and the O(n²) claim was corrected below. **The most useful thing the audit produced was not a finding but a shape:** of forty-one, none was a mistake in the mathematics — the part checked hardest — and the recurring failure was a guard whose coverage was narrower than the rule it enforced, green and blind at the same time.*
+*Refreshed at the 0.11.0 sweep; the previous refresh was at 0.6.0 @ D26, after the independent audit
+of 0.5.0. That audit's observation still holds: of its forty-one findings none was a mistake in the
+mathematics, and the recurring failure was a guard narrower than the rule it enforced — green and
+blind at the same time. Entries marked* checked at this sweep *were measured against the tree; the
+rest are carried forward as they stood.*
 
-- **The terminal UI has still never been run by a human.** Its formatting, its delegation and now its three completion messages are tested, but nobody has watched it render. The audit found the "batch complete" message on an inverted cut by reading state, not by seeing it — which is exactly the kind of defect a human would have spotted in ten seconds and a test suite did not spot in a hundred and seventy.
-- **`MAX_ITER` = 200,000 is extrapolated past n=100.** Measured at n=50, 75 and 100; the trend beyond that is inference. The audit accepted D16's figures rather than re-measuring them, so they have been confirmed by nobody.
-- **`PLACEMENT_COMPARISONS` = 3 is a fixed count, not a measured optimum.** The adaptive version is phase 3; until then every placement spends exactly three judgments even when the first two settle it.
-- **λ = 0.5 is conventional, not validated.** No sensitivity analysis was run; the claim that it does not change which side of a cut an item falls is reasoned rather than measured. The audit did not test it either.
-- **The appearance target of 10 is the same untested estimate it was adopted from.** Its *arithmetic* is now measured — the audit ran 50 findings at target 10 and spent exactly 251 comparisons, landing on the spec's ~250 estimate. Whether ten appearances buys enough **reliability** is still untested, and that is the half the number was chosen for.
-- **Interactive latency is unmeasured as a requirement.** The only performance NFR covers the fit (0.14 s against a five-second budget). The audit measured what a rater actually feels: 28 ms per keypress at 25 findings, 42 ms at 50, 64 ms at 100 — imperceptible at the ~70-finding corpus this targets. It is roughly linear in *n*, because `next_pair()` and `record()` between them re-read the log and the findings index about nine times per judgment. Extrapolated to 1,000 findings that is on the order of half a second per keypress, in a tool whose entire premise is that per-comparison friction cancels the method's benefit (D3). Not a phase-1 defect; a phase-2 requirement waiting to be written.
-- **The remaining O(n²) is in the session, not the store.** D19 removed the store's, and the 0.5.0 changelog's claim that "the sequence counter is cached, ending an O(n-squared) session cost" was narrower than it read: one such cost ended, and the one above did not. Stated here so the next reader does not conclude the session is linear.
-- **Concurrency beyond interleaved appends is unexplored.** D19 closes the reachable case — two handles appending in turn. Two processes appending at the *same instant* can still collide, and nothing in the store takes a lock. Demonstrated at its simplest by the audit; cross-process behavior is inferred from the same code path, not executed.
-- **No literature review was performed.** The method and the ten-appearances figure come from general knowledge of comparative judgment practice, not from cited sources. The audit did not check them against sources either.
+- **This sweep's own scope.** It read the specification whole, D27–D36, and this section. It did not
+  re-read D1–D26 against the code, and it read the frozen phase-1 build prompt only for its header,
+  since that prompt is a record of what phase 1 was told rather than a statement of what holds.
+  `Status: DRAFT` is left for the owner.
+- **The terminal UI has not been watched by anyone this record knows of.** Its formatting,
+  delegation and completion messages are tested; nobody has recorded watching it render. The
+  consuming harness has placed findings since, and how it drove those sessions is not recorded here.
+- **The terminal UI does not show proposed bands** (D36). A rater placing a finding in `cj compare`
+  is not told when that placement proposes a re-banding; it shows in `status` and `bands`, and as
+  `export`'s refusal. Left as D34 left separation to `status`.
+- **`MAX_ITER` = 200,000 is extrapolated past n=100.** Measured at n=50, 75 and 100 and confirmed by
+  nobody since; the consuming harness's store holds 83 findings, inside the measured range.
+- **`PLACEMENT_COMPARISONS` = 3 is a fixed count, not a measured optimum.** Adaptive placement is
+  phase 3; until then every placement spends exactly three judgments even when two settle it.
+- **λ = 0.5 is conventional, not validated.** No sensitivity analysis has been run; that it does not
+  change which side of a cut an item falls is reasoned rather than measured.
+- **The appearance target of 10 is an untested estimate of reliability.** Its arithmetic was
+  measured — 50 findings at target 10 spent 251 comparisons, on the spec's ~250 — and whether ten
+  appearances buys enough reliability, the half the number was chosen for, was not.
+- **Interactive latency is unmeasured as a requirement.** Measured once, by the 0.5.0 audit: 28 ms
+  per keypress at 25 findings, 42 ms at 50 and 64 ms at 100, roughly linear in *n* because
+  `next_pair()` and `record()` re-read the log and the findings index several times per judgment.
+  D36 adds to that: `progress()` now reads its proposals from `place()`, which reads the log again
+  for the latest assignment. Not re-measured. A phase-2 requirement waiting to be written.
+- **The remaining O(n²) is in the session, not the store.** D19 removed the store's; the session's
+  own remains, stated so the next reader does not conclude the session is linear.
+- **Concurrency beyond interleaved appends is unexplored.** D19 closes two handles appending in turn;
+  two processes appending at the same instant can still collide, and nothing in the store takes a
+  lock. An assignment appends like any other record and is no safer.
+- **No literature review was performed.** The method and the ten-appearances figure come from
+  general knowledge of comparative judgment, not from cited sources.
 - ~~**Whether bands are recomputed or frozen after a refit was decided in principle** (freeze, propose revisions) and is still not written as a requirement.~~ **Specified at D36 (0.10.0) and built at 0.10.1**: a refit now proposes, and `export` refuses until a rater assigns. The consuming harness's side is recorded there, not checked here: its store was backed up and assigned once at its D190, and its re-export moved `comparison_log_hash` and `run_id` alone. No test here can see a store in another repository.
-- **Carrying judgments across an accepted revision (D18) or a removal (D22) is unmeasured.** Nobody knows how far text can drift before old judgments stop meaning anything, and the tool tells a rater only that the hashes differ — not how large the change was.
-- **`anchor_set_version` cannot be set by any caller.** `Store.create` accepts it, nothing passes it, and `cj init` has no flag, so it is permanently `"1"` while the severity file publishes it as provenance and the run id hashes it. Reserved until anchor import/export lands in phase 2; a version that never changes is honest only while there is one anchor set.
-- **The venv runs Python 3.14; mypy targets 3.12.** CI now runs 3.12 and 3.13 (D-none, part of the audit sweep), so the gap is narrowed but not closed: the interpreter development actually happens on is in neither matrix row.
-- **The uncovered 2%** is textual's `compose`, the `compare` subcommand's launch path, the `__main__` guard, and two OSError branches reachable only by revoking read permission mid-run. Measured, not recalled — the previous entry named three things when there were five.
-- **Not swept this pass: the harness project.** Its specs were not re-read, and the audit explicitly did not read that repository, so the cross-repository interface claims (D5, D10, D15) are unverified by both passes. The scanner D15 describes lives there and neither of us ran it.
-- **This audit was not itself audited.** Every finding here was reproduced before acting on it — the eight executable ones against the audit's own script, the rest by reading the code it named — but a second independent pass would be looking at work that has now been reviewed twice by the same two perspectives.
+- **Carrying judgments across an accepted revision (D18) or a removal (D22) is unmeasured.** Nobody
+  knows how far text can drift before old judgments stop meaning anything, and the tool tells a rater
+  only that the hashes differ, not how large the change was. An accepted revision also leaves a band's
+  assignment standing (D36), so the frozen band carries across the same edit.
+- **`anchor_set_version` cannot be set by any caller.** Still `"1"`; reserved until anchor
+  import/export lands in phase 2. A version that never changes is honest only while there is one
+  anchor set.
+- **The venv runs Python 3.14; mypy targets 3.12, and CI runs 3.12 and 3.13.** Checked at this
+  sweep: the venv is 3.14.5, in neither matrix row.
+- **The uncovered 2%**, checked at this sweep: the terminal UI's `compose` and its launch path, the
+  `compare` subcommand that starts it, the `__main__` guard, two `status` lines printing a
+  placement's unplaced items and a bootstrap's below-target items, one blank line in `load`'s double
+  refusal, the refusal branch of progress's separation report, and three OSError or missing-file
+  branches in the store reachable only by revoking access mid-run. Every path D36 added is covered.
+- ~~**Not swept this pass: the harness project.** Its specs were not re-read, and the scanner D15
+  describes lives there and neither of us ran it.~~ **Superseded by D31**: a push here that changes a
+  specification dispatches the harness's scanner, and the dispatched runs of 2026-09-15 and
+  2026-09-18 passed. What stays unchecked here is the harness's own state — its store's assignment,
+  for instance, is recorded as its D190 and seen by no test in this repository.
+- **Nothing since 0.6.0 has been independently audited here.** D27–D32 came from a second audit,
+  which read all three repositories; D33–D36 have been reviewed only by the sessions that wrote them
+  and by the consuming harness's own audits of its side.
 
 ## Document status
 
@@ -817,6 +859,10 @@ finding, `appearances >= informative >= 0`, no banded row has zero appearances, 
 declares `schema_version` 2.
 
 ## D34 — A cut says how far apart its anchors have drifted, and refuses nothing for it
+
+> **Built at D36, 2026-09-18.** Option (D) below, freezing bands and proposing any change
+> for acceptance, was declined here as the larger change. D36 specifies and builds it, with
+> the freeze held by an assignment record in the log rather than at export.
 
 **Fork:** A cut is stored as the two findings either side of it and banded by their midpoint (D12),
 and a refit that inverts the pair is refused by name. A refit that merely moves the pair **apart** is
