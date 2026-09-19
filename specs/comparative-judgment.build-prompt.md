@@ -6,8 +6,9 @@
 > are marked inline; the current statement of every requirement is
 > `specs/comparative-judgment.md`, and the reasoning is in
 > `specs/comparative-judgment.decisions.md` (D1–D15 existed when this was written; the record's
-> *Document status* keeps the current count). Whoever builds phase 2 should read the spec and the
-> decision record, not this file.
+> *Document status* keeps the current count). Whoever builds phase 2 starts from
+> `specs/comparative-judgment.build-prompt.phase-2.md`, the spec and the decision record, not this
+> file.
 
 ## Recommended build-time session settings
 - **Model:** Claude Opus 5. **Effort:** `xhigh` (Extra).

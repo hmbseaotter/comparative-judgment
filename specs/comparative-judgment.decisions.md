@@ -1053,6 +1053,6 @@ scenario asserting its own precondition so a comparison that moved nothing fails
 requires `export` to refuse before `assign` and succeed after.
 
 
-Spec: `specs/comparative-judgment.md`. Build prompt: `specs/comparative-judgment.build-prompt.md` (phase 1, frozen).
+Spec: `specs/comparative-judgment.md`. Build prompt: `specs/comparative-judgment.build-prompt.md` (phase 1, frozen); phase 2's is `specs/comparative-judgment.build-prompt.phase-2.md`.
 
 Any new fork encountered during the build is appended here in the same shape, and from **D9** onward each entry ends with a `**Rule**` line naming what enforces it. Numbering continues from **D37**. Both figures, and the gaplessness of the sequence between them, are asserted by `tests/test_constraints.py::test_the_decision_record_states_its_own_high_water_mark` — so this section is the maintained copy rather than a remembered one, and the header no longer keeps a second.
