@@ -427,6 +427,36 @@ class TestFirstAssignmentsAndLapses:
         session.export(tmp_path / "x.json")
 
 
+class TestTheAssignCommandSaysWhatItDid:
+    """The two messages `cj assign` prints that the session-level tests cannot see."""
+
+    def test_an_assign_with_nothing_to_do_says_so_and_exits_zero(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        session, _ = _assigned(tmp_path)
+        before = _log_bytes(session)
+        assert main(["assign", "--store", str(session.store_path), "--rater", "rater-1"]) == 0
+        assert "wrote nothing" in capsys.readouterr().out
+        assert _log_bytes(session) == before
+
+    def test_a_refusal_counts_the_first_time_bands_it_did_not_write_either(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        session, ranked = _assigned(tmp_path)
+        _newcomer(session)
+        _move_across_a_cut(session, ranked)
+        proposals = session.place().proposals
+        assert any(p.assigned is None for p in proposals), "precondition: a first-time band"
+        assert any(p.assigned is not None for p in proposals), "precondition: a re-banding"
+
+        before = _log_bytes(session)
+        assert main(["assign", "--store", str(session.store_path), "--rater", "rater-1"]) == 1
+        err = capsys.readouterr().err
+        assert f"{ranked[5]:<16} medium -> high" in err
+        assert "1 finding(s) banded for the first time" in err
+        assert _log_bytes(session) == before
+
+
 class TestTheProposalRule:
     def test_each_kind_of_disagreement_is_named_and_nothing_else(self) -> None:
         current = (
