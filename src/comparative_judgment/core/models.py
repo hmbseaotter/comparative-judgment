@@ -144,6 +144,10 @@ class Comparison:
     rater_id: str
     session_id: str
     timestamp: str
+    #: The anchor-set version this judgment arrived with, or empty for one made in
+    #: this store (D41). Written to the log only when non-empty, so every record
+    #: that predates imports keeps its bytes, and the log hash and run id with them.
+    origin: str = ""
 
     def winner_loser(self) -> tuple[str, str] | None:
         """Return ``(winner, loser)``, or ``None`` for a tie.
@@ -266,9 +270,11 @@ class Cut:
 class Estimate:
     """One item's fitted position on the scale.
 
-    Standard errors are deliberately absent in this phase: nothing here consumes
-    them — placement compares against cut thresholds and the stopping rule counts
-    appearances — and they are the phase-2 diagnostics' input.
+    No standard error here, on purpose. Placement compares against cut
+    thresholds and the stopping rule counts appearances, so nothing on the
+    comparison loop's path reads one, and an estimate carrying it would put an
+    n-by-n inverse on every keypress. Standard errors live in
+    :class:`ItemDiagnostics`, computed when diagnostics are asked for (D39).
     """
 
     finding_id: str
@@ -427,3 +433,234 @@ class Progress:
     #: that has no assignment yet (D36). The same list band placement reports,
     #: read from it, and empty wherever placement refuses.
     proposals: tuple[ProposedBand, ...] = field(default_factory=tuple)
+    #: Comparisons still to make before the batch is complete (D40), or None where
+    #: nothing can be judged for a reason other than being finished. While
+    #: bootstrapping it is half the appearances still short of the target, rounded
+    #: up, since each comparison supplies two: a lower bound, because the partner a
+    #: needy item is paired with may already be at its target. While placing it is
+    #: each unplaced finding's shortfall against the placement quota, which is
+    #: exact, since every placement comparison pairs one newcomer with one anchor.
+    comparisons_remaining: int | None = None
+    #: True when `comparisons_remaining` is the bootstrap's lower bound rather than
+    #: placement's exact count, so a front end can say "at least".
+    remaining_is_lower_bound: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class ItemDiagnostics:
+    """One finding's standard error and misfit on the current fit (D37, D39).
+
+    `infit` weights each comparison's squared residual by how informative it
+    was, so one surprising result against a distant finding moves it little;
+    `outfit` weights them equally, so it is the one that result moves. Both are
+    None for a finding with no decided comparison, since a tie is excluded from
+    the fit and a residual needs an expectation to be measured from.
+    """
+
+    finding_id: str
+    theta: float
+    #: From the regularized information, so every finding has one, and an
+    #: unjudged finding's is the prior's alone: exactly 2.0 at lambda = 0.5.
+    se: float
+    appearances: int
+    #: Decided comparisons: the ones the fit and the misfit statistics use.
+    informative: int
+    ties: int
+    #: Ties over appearances; None with no appearance to divide by.
+    tie_rate: float | None
+    infit: float | None
+    outfit: float | None
+
+
+@dataclass(frozen=True, slots=True)
+class SoftRegion:
+    """A stretch of the scale and how consistently it was judged (D38).
+
+    Each decided comparison sits at the mean scale value of its two findings.
+    Within one connected component those are ordered and cut into regions of
+    equal evidence, so two regions' misfit values rest on the same number of
+    judgments and ranking them compares like with like.
+    """
+
+    #: 1 is the region with the highest infit.
+    rank: int
+    #: 1-based index into the diagnostics' components. Regions never span two:
+    #: scale values are not comparable across a gap no comparison bridges (D21).
+    component: int
+    #: Locations of the region's first and last decided comparison.
+    low: float
+    high: float
+    comparisons: int
+    ties: int
+    tie_rate: float
+    infit: float
+    outfit: float
+    #: The findings in the region's decided comparisons, most severe first.
+    findings: tuple[str, ...]
+    #: Cut boundaries whose threshold falls in this region's stretch of the scale.
+    cuts: tuple[CutName, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class CutThreshold:
+    """A cut and the threshold it has on the fit a report was computed from."""
+
+    name: CutName
+    above_id: str
+    below_id: str
+    threshold: float
+
+
+@dataclass(frozen=True, slots=True)
+class ComponentReport:
+    """One connected group of judged findings, and where its members came from."""
+
+    members: tuple[str, ...]
+    #: Members some anchor-set import brought into this store.
+    imported: int
+    #: Members that arrived through this store's own findings document.
+    local: int
+
+
+@dataclass(frozen=True, slots=True)
+class AnchorSetBridge:
+    """How firmly one imported anchor set is tied to the rest of the store (D43).
+
+    No threshold is applied: how many bridging comparisons are enough is the
+    rater's judgment, and D21 already refuses bands across a set nothing bridges.
+    """
+
+    anchor_set_version: str
+    #: Findings the import added to this store.
+    new: int
+    #: Findings the store already held with the same text, which join the two
+    #: sets without any comparison.
+    shared: int
+    #: Live decided comparisons between a finding the set added and a finding not
+    #: in the set. Newcomers placed against imported anchors count, so it grows.
+    bridging: int
+
+
+@dataclass(frozen=True, slots=True)
+class Diagnostics:
+    """Where the rater's scale is soft, and how precisely each finding is placed.
+
+    Computed from the log it names and nothing else, so it is reproducible: two
+    reports over an unchanged log are identical, with the standard errors'
+    byte-identity stated as holding across two runs on one machine, because a
+    linear-algebra call can differ between BLAS builds (D39).
+    """
+
+    comparison_log_hash: str
+    anchor_set_version: str
+    regularization: float
+    #: Live comparisons, decided and tied.
+    comparisons: int
+    ties: int
+    #: Ties over live comparisons; 0.0 with none.
+    tie_rate: float
+    items: tuple[ItemDiagnostics, ...]
+    regions: tuple[SoftRegion, ...]
+    components: tuple[ComponentReport, ...]
+    anchor_sets: tuple[AnchorSetBridge, ...]
+    #: The cuts' thresholds on this fit, or empty where band placement would
+    #: refuse, which `blocked_reason` then names.
+    cuts: tuple[CutThreshold, ...]
+    blocked_reason: str
+
+
+@dataclass(frozen=True, slots=True)
+class AnchorComparison:
+    """A comparison as an anchor-set file carries it (D41).
+
+    Everything the judgment was, and nothing about the store it was made in: no
+    sequence number, since the importing store numbers its own log, and no
+    origin, since the file is where it comes from.
+    """
+
+    left_id: str
+    right_id: str
+    outcome: Outcome
+    rater_id: str
+    session_id: str
+    timestamp: str
+
+
+@dataclass(frozen=True, slots=True)
+class AnchorSet:
+    """Findings, the judgments among them, and the cuts drawn on them (D41).
+
+    What another store needs to place its own findings against these cuts. The
+    version is a hash of the content, so it names what the set says rather than
+    when it was exported: two exports of an unchanged store are the same set.
+    """
+
+    version: str
+    #: The log hash of the store it was exported from, so its history is named
+    #: even though only its live comparisons travel.
+    source_log_hash: str
+    findings: tuple[Finding, ...]
+    comparisons: tuple[AnchorComparison, ...]
+    cuts: tuple[Cut, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class ImportRecorded:
+    """A record that an anchor set was imported, and by whom (D41).
+
+    Written to the log **before** the comparisons it brings, and naming how many
+    it appends, so an interrupted import is detectable exactly -- fewer
+    comparisons carry its version than it says -- and running it again completes
+    it. It carries the text of every finding it adds, so the findings live in the
+    history the log hash covers and no later rewrite of the findings index can
+    drop them.
+    """
+
+    seq: int
+    anchor_set_version: str
+    source_log_hash: str
+    #: Findings this import added, with their full text.
+    findings: tuple[Finding, ...]
+    #: Findings the store already held with the same text.
+    shared: tuple[str, ...]
+    #: The anchor set's cuts, which the store adopts where it has none.
+    cuts: tuple[Cut, ...]
+    #: Comparisons appended after this record, carrying its version as origin.
+    appended: int
+    #: Comparisons in the file the log already held, which were not appended again.
+    skipped: int
+    rater_id: str
+    session_id: str
+    timestamp: str
+
+
+@dataclass(frozen=True, slots=True)
+class AnchorExport:
+    """What an anchor-set export wrote."""
+
+    version: str
+    findings: int
+    comparisons: int
+
+
+@dataclass(frozen=True, slots=True)
+class ImportOutcome:
+    """What an import did (D41, D43).
+
+    A refusal is raised rather than returned, since every one is a conflict to
+    name rather than a choice for the rater to accept; this reports what an
+    import that went ahead did, and how firmly the set is now tied in.
+    """
+
+    anchor_set_version: str
+    #: False when the store already held everything the file carries.
+    applied: bool
+    #: True when this run finished an import an earlier run was interrupted in.
+    resumed: bool
+    new_findings: tuple[str, ...]
+    shared_findings: tuple[str, ...]
+    appended: int
+    skipped: int
+    cuts_adopted: bool
+    bridge: AnchorSetBridge | None
+    components: tuple[ComponentReport, ...]

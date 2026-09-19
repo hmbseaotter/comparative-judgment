@@ -12,9 +12,29 @@ reader report their own named refusals over one implementation.
 
 from __future__ import annotations
 
+from enum import StrEnum
+
 from comparative_judgment.core.errors import ComparativeJudgmentError
 
 ErrorType = type[ComparativeJudgmentError]
+
+
+def as_enum[E: StrEnum](value: object, kind: type[E], where: str, *, error: ErrorType) -> E:
+    """A string that must name a member of `kind`.
+
+    Constructing the enum directly raises a bare `ValueError` on a value it does
+    not know, which escapes every handler for a named refusal and reaches the
+    user as a traceback (D26). The log now carries findings inside import
+    records, so an unknown tier or outcome there is corrupt data to name, not a
+    crash.
+    """
+    text = as_str(value, where, error=error)
+    try:
+        return kind(text)
+    except ValueError:
+        allowed = ", ".join(member.value for member in kind)
+        msg = f"{where}: {text!r} is not a {kind.__name__} (expected one of {allowed})"
+        raise error(msg) from None
 
 
 def as_dict(value: object, where: str, *, error: ErrorType) -> dict[str, object]:

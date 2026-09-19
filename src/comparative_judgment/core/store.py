@@ -10,14 +10,29 @@ Layout::
 
     <store>/
       meta.json          schema version, anchor-set version, created_at
-      findings.jsonl     admitted findings, one per line
+      findings.jsonl     findings admitted from the findings document, one per line
       comparisons.jsonl  append-only; comparisons, retractions, accepted revisions
-                         and removals, and band assignments, interleaved
+                         and removals, band assignments and anchor-set imports,
+                         interleaved
       cuts.json          the three band cuts, as anchor pairs
 
 JSONL for the log because append-only is the whole point. JSON for machine state.
 YAML appears nowhere in here: it is the format of the *human-authored* findings
 document this store reads from, not of the store itself.
+
+Findings arrive by two routes, and they are kept apart (D41). The findings index
+mirrors the document and is rewritten whole by every load; findings an anchor-set
+import brings live in its record in the log, so a load cannot drop them and the
+log hash covers their text. `findings()` is both.
+
+**Parsing is memoized, and the memo is never trusted without looking (D45).** A
+keypress used to parse the log about eight times, which was most of its cost. Each
+read now takes the file's size and modification time *first*, then parses, and
+keeps the result under that key; the next call compares the key again before using
+it. So another handle's append -- which always changes the size -- is seen, which
+is D19's lesson about caching anything a second handle can change. A handle's own
+append extends the memo only when the file grew by exactly the bytes it wrote,
+which proves nobody else appended in between; otherwise the memo is dropped.
 """
 
 from __future__ import annotations
@@ -39,6 +54,7 @@ from comparative_judgment.core.errors import (
 )
 from comparative_judgment.core.models import (
     SCHEMA_VERSION,
+    AnchorComparison,
     AssignedBand,
     Band,
     BandsAssigned,
@@ -47,6 +63,7 @@ from comparative_judgment.core.models import (
     CutName,
     DetectableBy,
     Finding,
+    ImportRecorded,
     Outcome,
     Removal,
     RemovalAccepted,
@@ -56,7 +73,9 @@ from comparative_judgment.core.models import (
     Tier,
 )
 from comparative_judgment.core.shapes import (
+    ErrorType,
     as_dict,
+    as_enum,
     as_int,
     as_list,
     as_str,
@@ -81,9 +100,95 @@ KIND_RETRACTION: Final[str] = "retraction"
 KIND_REVISION: Final[str] = "revision"
 KIND_REMOVAL: Final[str] = "removal"
 KIND_ASSIGNMENT: Final[str] = "assignment"
+KIND_IMPORT: Final[str] = "import"
+
+#: The session id an import's own record is written under, beside `load` and
+#: `assign`. The comparisons it brings keep the session ids they were made in.
+IMPORT_SESSION_ID: Final[str] = "import"
 
 Clock = Callable[[], str]
-LogEntry = Comparison | Retraction | RevisionAccepted | RemovalAccepted | BandsAssigned
+LogEntry = (
+    Comparison | Retraction | RevisionAccepted | RemovalAccepted | BandsAssigned | ImportRecorded
+)
+_StatKey = tuple[int, int] | None
+
+
+def finding_payload(finding: Finding) -> dict[str, object]:
+    """A finding as the findings index, an import record and an anchor-set file write it."""
+    return {
+        "id": finding.id,
+        "content_hash": finding.content_hash,
+        "observation": finding.observation,
+        "evidence": list(finding.evidence),
+        "consequence": finding.consequence,
+        "detectable_by": finding.detectable_by.value,
+        "tier": finding.tier.value,
+        "call_ref": finding.call_ref,
+    }
+
+
+def parse_finding(entry: object, where: str, *, error: ErrorType) -> Finding:
+    """The inverse of :func:`finding_payload`, refusing by name whatever does not fit."""
+    raw = as_dict(entry, where, error=error)
+
+    def text(key: str) -> str:
+        return as_str(field(raw, key, where, error=error), where, error=error)
+
+    evidence = as_list(field(raw, "evidence", where, error=error), where, error=error)
+    return Finding(
+        id=text("id"),
+        content_hash=text("content_hash"),
+        observation=text("observation"),
+        evidence=tuple(as_str(e, where, error=error) for e in evidence),
+        consequence=text("consequence"),
+        detectable_by=as_enum(
+            field(raw, "detectable_by", where, error=error), DetectableBy, where, error=error
+        ),
+        tier=as_enum(field(raw, "tier", where, error=error), Tier, where, error=error),
+        call_ref=as_str(raw.get("call_ref", ""), where, error=error),
+    )
+
+
+def cut_payload(cut: Cut) -> dict[str, object]:
+    return {
+        "name": cut.name.value,
+        "above_id": cut.above_id,
+        "below_id": cut.below_id,
+        "calibration_note": cut.calibration_note,
+    }
+
+
+def parse_cut(entry: object, where: str, *, error: ErrorType) -> Cut:
+    item = as_dict(entry, where, error=error)
+    return Cut(
+        name=as_enum(field(item, "name", where, error=error), CutName, where, error=error),
+        above_id=as_str(field(item, "above_id", where, error=error), where, error=error),
+        below_id=as_str(field(item, "below_id", where, error=error), where, error=error),
+        calibration_note=as_str(item.get("calibration_note", ""), where, error=error),
+    )
+
+
+def split_lines(text: str) -> list[str]:
+    """Non-blank lines, split on LF alone.
+
+    Not `str.splitlines()`, which also splits on U+2028, U+2029, U+0085 and five
+    other characters that `json.dumps(ensure_ascii=False)` writes raw inside a
+    string. A finding whose text held one would have its record cut in two and
+    refused as invalid JSON -- in the findings index, recoverable by reloading, and
+    in the log, where findings now live inside import records, permanently. A
+    trailing carriage return from a store written before D35 is JSON whitespace,
+    so such a line still parses.
+    """
+    return [line for line in text.split("\n") if line.strip()]
+
+
+def _stat_key(path: Path) -> _StatKey:
+    """A file's size and modification time, or None when it does not exist."""
+    try:
+        status = path.stat()
+    except FileNotFoundError:
+        return None
+    return (status.st_size, status.st_mtime_ns)
 
 
 def utc_now() -> str:
@@ -147,6 +252,9 @@ class Store:
     def __init__(self, path: Path, *, clock: Clock = utc_now) -> None:
         self.path = path
         self._clock = clock
+        # Parsed files, each under the stat key taken before it was read (D45).
+        self._log_memo: tuple[_StatKey, tuple[LogEntry, ...]] | None = None
+        self._findings_memo: tuple[_StatKey, tuple[Finding, ...]] | None = None
 
     # -- lifecycle ---------------------------------------------------------
 
@@ -228,6 +336,16 @@ class Store:
 
     @property
     def anchor_set_version(self) -> str:
+        """The most recent anchor set imported into this store, or meta.json's value.
+
+        Derived from the log rather than written into meta.json (D41), so it cannot
+        disagree with the import record that set it, and an interrupted import
+        cannot leave it half-changed. A store that never imports keeps the "1" it
+        was created with, so its run ids do not move.
+        """
+        imported = self.imports()
+        if imported:
+            return imported[-1].anchor_set_version
         value = _read_json(self.path / META_FILE).get("anchor_set_version")
         return str(value) if value is not None else "1"
 
@@ -260,79 +378,46 @@ class Store:
 
         Whole-file rather than append: the index mirrors a document that is
         re-read in full each time, and an append-only index would accumulate
-        superseded rows with no way to tell which is current.
+        superseded rows with no way to tell which is current. Findings an import
+        brought are not in it and are not touched by it.
         """
         lines = [
-            json.dumps(
-                {
-                    "id": f.id,
-                    "content_hash": f.content_hash,
-                    "observation": f.observation,
-                    "evidence": list(f.evidence),
-                    "consequence": f.consequence,
-                    "detectable_by": f.detectable_by.value,
-                    "tier": f.tier.value,
-                    "call_ref": f.call_ref,
-                },
-                sort_keys=True,
-                ensure_ascii=False,
-            )
-            for f in findings
+            json.dumps(finding_payload(f), sort_keys=True, ensure_ascii=False) for f in findings
         ]
         body = "\n".join(lines)
         (self.path / FINDINGS_FILE).write_text(
             body + "\n" if body else "", encoding="utf-8", newline="\n"
         )
+        self._findings_memo = None
+
+    def document_findings(self) -> tuple[Finding, ...]:
+        """The findings the findings document supplied, as the index holds them."""
+        path = self.path / FINDINGS_FILE
+        key = _stat_key(path)
+        if self._findings_memo is not None and self._findings_memo[0] == key:
+            return self._findings_memo[1]
+        where = FINDINGS_FILE
+        parsed = tuple(
+            parse_finding(_loads(line, where), where, error=StoreSchemaError)
+            for line in self._read_lines(path)
+        )
+        self._findings_memo = (key, parsed)
+        return parsed
+
+    def imported_findings(self) -> tuple[Finding, ...]:
+        """Findings anchor-set imports added, in the order they were imported."""
+        return tuple(f for record in self.imports() for f in record.findings)
 
     def findings(self) -> tuple[Finding, ...]:
-        out: list[Finding] = []
-        where = FINDINGS_FILE
-        for line in self._read_lines(self.path / FINDINGS_FILE):
-            raw = as_dict(_loads(line, where), where, error=StoreSchemaError)
-            evidence = as_list(
-                field(raw, "evidence", where, error=StoreSchemaError), where, error=StoreSchemaError
-            )
-            out.append(
-                Finding(
-                    id=as_str(
-                        field(raw, "id", where, error=StoreSchemaError),
-                        where,
-                        error=StoreSchemaError,
-                    ),
-                    content_hash=as_str(
-                        field(raw, "content_hash", where, error=StoreSchemaError),
-                        where,
-                        error=StoreSchemaError,
-                    ),
-                    observation=as_str(
-                        field(raw, "observation", where, error=StoreSchemaError),
-                        where,
-                        error=StoreSchemaError,
-                    ),
-                    evidence=tuple(as_str(e, where, error=StoreSchemaError) for e in evidence),
-                    consequence=as_str(
-                        field(raw, "consequence", where, error=StoreSchemaError),
-                        where,
-                        error=StoreSchemaError,
-                    ),
-                    detectable_by=DetectableBy(
-                        as_str(
-                            field(raw, "detectable_by", where, error=StoreSchemaError),
-                            where,
-                            error=StoreSchemaError,
-                        )
-                    ),
-                    tier=Tier(
-                        as_str(
-                            field(raw, "tier", where, error=StoreSchemaError),
-                            where,
-                            error=StoreSchemaError,
-                        )
-                    ),
-                    call_ref=as_str(raw.get("call_ref", ""), where, error=StoreSchemaError),
-                )
-            )
-        return tuple(out)
+        """Every finding in the store: the document's, then any imports added.
+
+        An identifier held by both is held once, as the document states it. That
+        can only happen with identical text, since both a load and an import refuse
+        the same identifier with different text.
+        """
+        documented = self.document_findings()
+        held = {f.id for f in documented}
+        return documented + tuple(f for f in self.imported_findings() if f.id not in held)
 
     # -- the log -----------------------------------------------------------
 
@@ -382,16 +467,62 @@ class Store:
             field(raw, "seq", LOG_FILE, error=StoreSchemaError), LOG_FILE, error=StoreSchemaError
         )
 
-    def _append_log(self, payload: dict[str, object]) -> None:
+    def _append_log(self, payload: dict[str, object], entry: LogEntry) -> None:
         """Append one line and flush it to disk before returning.
 
         The caller advances to the next pair on return, so a comparison that is
         merely buffered is a comparison a crash silently discards — and the rater
         would have no way to know which judgment vanished.
+
+        **The parse memo is extended rather than dropped, but only on proof (D45).**
+        Re-parsing the whole log after every keypress's own append was what the
+        memo existed to stop. So when the memo matched the file just before this
+        write, and the file afterwards is larger by exactly the bytes written, no
+        other handle can have appended in between -- appends only grow a file --
+        and the memo gains this entry. Any other outcome drops the memo, and the
+        next read parses the file, which is D19's rule: nothing a second handle can
+        change is trusted without looking.
         """
-        with (self.path / LOG_FILE).open("a", encoding="utf-8", newline="\n") as handle:
-            handle.write(json.dumps(payload, sort_keys=True, ensure_ascii=False) + "\n")
+        path = self.path / LOG_FILE
+        line = (json.dumps(payload, sort_keys=True, ensure_ascii=False) + "\n").encode("utf-8")
+        before = _stat_key(path)
+        current = self._log_memo is not None and self._log_memo[0] == before
+        with path.open("a", encoding="utf-8", newline="\n") as handle:
+            handle.write(line.decode("utf-8"))
             handle.flush()
+        after = _stat_key(path)
+        if (
+            current
+            and self._log_memo is not None
+            and before is not None
+            and after is not None
+            and after[0] == before[0] + len(line)
+        ):
+            self._log_memo = (after, (*self._log_memo[1], entry))
+        else:
+            self._log_memo = None
+
+    @staticmethod
+    def _comparison_payload(record: Comparison) -> dict[str, object]:
+        """A comparison as the log writes it; `origin` only when it has one.
+
+        Absent rather than empty for a judgment made in this store, so every line
+        written before imports existed keeps its bytes, and so do the log hash and
+        the run ids derived from it.
+        """
+        payload: dict[str, object] = {
+            "kind": KIND_COMPARISON,
+            "seq": record.seq,
+            "left_id": record.left_id,
+            "right_id": record.right_id,
+            "outcome": record.outcome.value,
+            "rater_id": record.rater_id,
+            "session_id": record.session_id,
+            "timestamp": record.timestamp,
+        }
+        if record.origin:
+            payload["origin"] = record.origin
+        return payload
 
     def append_comparison(
         self,
@@ -422,19 +553,85 @@ class Store:
             session_id=session_id,
             timestamp=self._clock(),
         )
+        self._append_log(self._comparison_payload(record), record)
+        return record
+
+    def append_import(
+        self,
+        *,
+        anchor_set_version: str,
+        source_log_hash: str,
+        findings: Sequence[Finding],
+        shared: Sequence[str],
+        cuts: Sequence[Cut],
+        appended: int,
+        skipped: int,
+        rater_id: str,
+    ) -> ImportRecorded:
+        """Record that an anchor set is being imported, before its comparisons (D41).
+
+        The caller has validated everything; this writes. First, so the findings
+        exist before anything refers to them, and so `appended` makes an
+        interruption part-way through the comparisons exactly detectable.
+        """
+        record = ImportRecorded(
+            seq=self._next_seq(),
+            anchor_set_version=anchor_set_version,
+            source_log_hash=source_log_hash,
+            findings=tuple(sorted(findings, key=lambda f: f.id)),
+            shared=tuple(sorted(shared)),
+            cuts=tuple(cuts),
+            appended=appended,
+            skipped=skipped,
+            rater_id=rater_id,
+            session_id=IMPORT_SESSION_ID,
+            timestamp=self._clock(),
+        )
         self._append_log(
             {
-                "kind": KIND_COMPARISON,
+                "kind": KIND_IMPORT,
                 "seq": record.seq,
-                "left_id": record.left_id,
-                "right_id": record.right_id,
-                "outcome": record.outcome.value,
+                "anchor_set_version": record.anchor_set_version,
+                "source_log_hash": record.source_log_hash,
+                "findings": [finding_payload(f) for f in record.findings],
+                "shared": list(record.shared),
+                "cuts": [cut_payload(c) for c in record.cuts],
+                "appended": record.appended,
+                "skipped": record.skipped,
                 "rater_id": record.rater_id,
                 "session_id": record.session_id,
                 "timestamp": record.timestamp,
-            }
+            },
+            record,
         )
         return record
+
+    def append_imported_comparisons(
+        self, comparisons: Sequence[AnchorComparison], *, origin: str
+    ) -> tuple[Comparison, ...]:
+        """Append an anchor set's comparisons as they were made, tagged with its version.
+
+        Rater, session and timestamp are the original judgment's, so attribution
+        survives the move (D4) and phase 3 can separate raters again. Not checked
+        against the findings one record at a time, as `append_comparison` is: the
+        import validated them against the merged store once, and its record,
+        written first, is what makes their findings known.
+        """
+        out: list[Comparison] = []
+        for comparison in comparisons:
+            record = Comparison(
+                seq=self._next_seq(),
+                left_id=comparison.left_id,
+                right_id=comparison.right_id,
+                outcome=comparison.outcome,
+                rater_id=comparison.rater_id,
+                session_id=comparison.session_id,
+                timestamp=comparison.timestamp,
+                origin=origin,
+            )
+            self._append_log(self._comparison_payload(record), record)
+            out.append(record)
+        return tuple(out)
 
     def append_retraction(self, *, retracts_seq: int, rater_id: str, session_id: str) -> Retraction:
         """Withdraw a live comparison, refusing one that names nothing.
@@ -467,7 +664,8 @@ class Store:
                 "rater_id": record.rater_id,
                 "session_id": record.session_id,
                 "timestamp": record.timestamp,
-            }
+            },
+            record,
         )
         return record
 
@@ -524,7 +722,8 @@ class Store:
                 "rater_id": record.rater_id,
                 "session_id": record.session_id,
                 "timestamp": record.timestamp,
-            }
+            },
+            record,
         )
         return record
 
@@ -547,15 +746,37 @@ class Store:
 
         Only judged findings are reported, for the reason D18 gives: flagging a
         removal nobody compared would train a rater to wave the flag through.
+
+        Only the document's findings can leave it. A finding an import added was
+        never in the document, and one the document also held with identical text
+        stays in the store through the import when the document drops it, so
+        neither is a removal (D41).
         """
         arriving = {f.id for f in incoming}
         counts = self._judged_counts()
+        provided = {f.id for f in self.imported_findings()}
         found = [
             Removal(finding_id=f.id, old_hash=f.content_hash, comparisons=counts[f.id])
-            for f in self.findings()
-            if f.id not in arriving and counts.get(f.id, 0) > 0
+            for f in self.document_findings()
+            if f.id not in arriving and f.id not in provided and counts.get(f.id, 0) > 0
         ]
         return tuple(sorted(found, key=lambda r: r.finding_id))
+
+    def import_collisions(self, incoming: Iterable[Finding]) -> tuple[tuple[str, str, str], ...]:
+        """Document findings that reuse an imported finding's identifier with other text.
+
+        Returned as `(id, imported hash, incoming hash)`. A load refuses these by
+        name (D41): accepting one as a revision would rewrite text another store's
+        judgments were made against, and an identifier cannot name two texts.
+        """
+        imported = {f.id: f.content_hash for f in self.imported_findings()}
+        return tuple(
+            sorted(
+                (f.id, imported[f.id], f.content_hash)
+                for f in incoming
+                if f.id in imported and imported[f.id] != f.content_hash
+            )
+        )
 
     def append_removal(
         self, removal: Removal, *, rater_id: str, session_id: str
@@ -580,7 +801,8 @@ class Store:
                 "rater_id": record.rater_id,
                 "session_id": record.session_id,
                 "timestamp": record.timestamp,
-            }
+            },
+            record,
         )
         return record
 
@@ -614,7 +836,8 @@ class Store:
                 "rater_id": record.rater_id,
                 "session_id": record.session_id,
                 "timestamp": record.timestamp,
-            }
+            },
+            record,
         )
         return record
 
@@ -643,11 +866,51 @@ class Store:
     def accepted_revisions(self) -> tuple[RevisionAccepted, ...]:
         return tuple(e for e in self.log() if isinstance(e, RevisionAccepted))
 
+    def imports(self) -> tuple[ImportRecorded, ...]:
+        """Every anchor-set import recorded, in the order they happened."""
+        return tuple(e for e in self.log() if isinstance(e, ImportRecorded))
+
+    def incomplete_imports(self) -> tuple[ImportRecorded, ...]:
+        """Imports whose record was written and whose work was not finished (D41).
+
+        Exact, because the record names how many comparisons follow it: fewer
+        comparison records carrying its version than that is an interruption part-
+        way through them. And a store holding an import and no cuts was interrupted
+        before adopting them, since only the first import into a store without cuts
+        adopts any, and nothing can clear cuts once set -- so it is that import.
+        Retracted records count, since a retraction does not un-append one.
+        """
+        records = self.imports()
+        if not records:
+            return ()
+        carried: dict[str, int] = {}
+        for entry in self.log():
+            if isinstance(entry, Comparison) and entry.origin:
+                carried[entry.origin] = carried.get(entry.origin, 0) + 1
+        short = [r for r in records if carried.get(r.anchor_set_version, 0) < r.appended]
+        if not self.cuts() and records[-1] not in short:
+            short.append(records[-1])
+        return tuple(short)
+
     def log(self) -> tuple[LogEntry, ...]:
-        """Everything recorded, in the order it happened."""
+        """Everything recorded, in the order it happened.
+
+        Parsed once per change to the file rather than once per call (D45): the
+        stat key is taken before the read, so an append by another handle between
+        the two leaves a key that no longer matches and the next call reads again.
+        """
+        path = self.path / LOG_FILE
+        key = _stat_key(path)
+        if self._log_memo is not None and self._log_memo[0] == key:
+            return self._log_memo[1]
+        parsed = self._parse_log(path)
+        self._log_memo = (key, parsed)
+        return parsed
+
+    def _parse_log(self, path: Path) -> tuple[LogEntry, ...]:
         out: list[LogEntry] = []
         where = LOG_FILE
-        for line in self._read_lines(self.path / LOG_FILE):
+        for line in self._read_lines(path):
             raw = as_dict(_loads(line, where), where, error=StoreSchemaError)
             kind = as_str(
                 field(raw, "kind", where, error=StoreSchemaError), where, error=StoreSchemaError
@@ -682,16 +945,16 @@ class Store:
                             where,
                             error=StoreSchemaError,
                         ),
-                        outcome=Outcome(
-                            as_str(
-                                field(raw, "outcome", where, error=StoreSchemaError),
-                                where,
-                                error=StoreSchemaError,
-                            )
+                        outcome=as_enum(
+                            field(raw, "outcome", where, error=StoreSchemaError),
+                            Outcome,
+                            where,
+                            error=StoreSchemaError,
                         ),
                         rater_id=rater,
                         session_id=session,
                         timestamp=stamp,
+                        origin=as_str(raw.get("origin", ""), where, error=StoreSchemaError),
                     )
                 )
             elif kind == KIND_REVISION:
@@ -778,10 +1041,41 @@ class Store:
                         timestamp=stamp,
                     )
                 )
+            elif kind == KIND_IMPORT:
+                out.append(self._import_record(raw, seq, rater, session, stamp, where))
             else:
                 msg = f"{where}: unknown log entry kind {kind!r}"
                 raise StoreSchemaError(msg)
         return tuple(out)
+
+    @staticmethod
+    def _import_record(
+        raw: dict[str, object], seq: int, rater: str, session: str, stamp: str, where: str
+    ) -> ImportRecorded:
+        err = StoreSchemaError
+
+        def listed(key: str) -> list[object]:
+            return as_list(field(raw, key, where, error=err), where, error=err)
+
+        def number(key: str) -> int:
+            return as_int(field(raw, key, where, error=err), where, error=err)
+
+        def text(key: str) -> str:
+            return as_str(field(raw, key, where, error=err), where, error=err)
+
+        return ImportRecorded(
+            seq=seq,
+            anchor_set_version=text("anchor_set_version"),
+            source_log_hash=text("source_log_hash"),
+            findings=tuple(parse_finding(f, where, error=err) for f in listed("findings")),
+            shared=tuple(as_str(s, where, error=err) for s in listed("shared")),
+            cuts=tuple(parse_cut(c, where, error=err) for c in listed("cuts")),
+            appended=number("appended"),
+            skipped=number("skipped"),
+            rater_id=rater,
+            session_id=session,
+            timestamp=stamp,
+        )
 
     def log_hash(self) -> str:
         """A content hash of the comparison log.
@@ -815,53 +1109,13 @@ class Store:
     # -- cuts --------------------------------------------------------------
 
     def put_cuts(self, cuts: Sequence[Cut]) -> None:
-        _write_json(
-            self.path / CUTS_FILE,
-            {
-                "cuts": [
-                    {
-                        "name": c.name.value,
-                        "above_id": c.above_id,
-                        "below_id": c.below_id,
-                        "calibration_note": c.calibration_note,
-                    }
-                    for c in cuts
-                ]
-            },
-        )
+        _write_json(self.path / CUTS_FILE, {"cuts": [cut_payload(c) for c in cuts]})
 
     def cuts(self) -> tuple[Cut, ...]:
         where = CUTS_FILE
         raw = _read_json(self.path / CUTS_FILE)
         entries = as_list(raw.get("cuts", []), where, error=StoreSchemaError)
-        out: list[Cut] = []
-        for entry in entries:
-            item = as_dict(entry, where, error=StoreSchemaError)
-            out.append(
-                Cut(
-                    name=CutName(
-                        as_str(
-                            field(item, "name", where, error=StoreSchemaError),
-                            where,
-                            error=StoreSchemaError,
-                        )
-                    ),
-                    above_id=as_str(
-                        field(item, "above_id", where, error=StoreSchemaError),
-                        where,
-                        error=StoreSchemaError,
-                    ),
-                    below_id=as_str(
-                        field(item, "below_id", where, error=StoreSchemaError),
-                        where,
-                        error=StoreSchemaError,
-                    ),
-                    calibration_note=as_str(
-                        item.get("calibration_note", ""), where, error=StoreSchemaError
-                    ),
-                )
-            )
-        return tuple(out)
+        return tuple(parse_cut(entry, where, error=StoreSchemaError) for entry in entries)
 
     # -- helpers -----------------------------------------------------------
 
@@ -892,4 +1146,4 @@ class Store:
     def _read_lines(path: Path) -> list[str]:
         if not path.is_file():
             return []
-        return [line for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
+        return split_lines(path.read_text(encoding="utf-8"))

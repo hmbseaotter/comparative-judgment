@@ -444,3 +444,66 @@ class TestPlacementMode:
             "the finding ranked between the critical_high anchors is not reported between them"
         )
         assert session.progress().separation == placement.separation
+
+
+class TestRemainingAndTheSittingClock:
+    """D40: an estimate of comparisons remaining beside those spent, and the sitting's time."""
+
+    def test_the_bootstrap_estimate_is_a_lower_bound_that_holds_at_every_step(
+        self, session: Session
+    ) -> None:
+        estimates: list[int] = []
+        while session.next_pair() is not None:
+            progress = session.progress()
+            assert progress.remaining_is_lower_bound
+            assert progress.comparisons_remaining is not None
+            estimates.append(progress.comparisons_remaining)
+            session.record(Outcome.LEFT)
+        spent = len(estimates)
+        assert estimates[0] == 12, "six findings owing four appearances each, two per comparison"
+        for step, estimate in enumerate(estimates):
+            assert estimate <= spent - step, (step, estimate, spent)
+        assert session.progress().comparisons_remaining == 0
+
+    def test_the_placement_estimate_is_exact(self, tmp_path: Path) -> None:
+        placing = TestPlacementMode()
+        session = placing._bootstrapped(tmp_path)
+        placing._add_newcomer(session, "F-NEW")
+        placing._add_newcomer(session, "F-NEWER")
+        seen: list[int | None] = []
+        while session.next_pair() is not None:
+            progress = session.progress()
+            assert not progress.remaining_is_lower_bound
+            seen.append(progress.comparisons_remaining)
+            session.record(Outcome.LEFT)
+        assert seen == list(range(len(seen), 0, -1)) and len(seen) == 6
+        assert session.progress().comparisons_remaining == 0
+
+    def test_a_blocked_batch_has_no_estimate(self, tmp_path: Path) -> None:
+        session = TestPlacementMode()._bootstrapped(tmp_path)
+        ranked = [e.finding_id for e in session._fit().ranked()]
+        session._store.put_cuts(
+            [
+                Cut(CutName.CRITICAL_HIGH, ranked[1], ranked[0]),
+                Cut(CutName.HIGH_MEDIUM, ranked[2], ranked[3]),
+                Cut(CutName.MEDIUM_LOW, ranked[4], ranked[5]),
+            ]
+        )
+        progress = session.progress()
+        assert progress.blocked_reason and progress.comparisons_remaining is None
+
+    def test_fewer_than_two_findings_leave_nothing_to_compare(self, tmp_path: Path) -> None:
+        store = Store.create(tmp_path / "one", clock=_fixed_clock)
+        store.put_findings(parse_findings(_document(1)).admitted)
+        assert Session(store, rater_id="r").progress().comparisons_remaining == 0
+
+    def test_the_clock_measures_this_sitting_and_writes_nothing(self, tmp_path: Path) -> None:
+        ticks = iter([100.0, 100.0, 175.5, 175.5])
+        store = Store.create(tmp_path / "s", clock=_fixed_clock)
+        store.put_findings(parse_findings(_document(4)).admitted)
+        session = Session(store, rater_id="r", monotonic=lambda: next(ticks))
+        before = session.progress()
+        assert session.elapsed_seconds() == 0.0
+        assert session.elapsed_seconds() == 75.5
+        assert session.progress() == before, "progress must stay a function of the store"
+        assert store.log() == ()

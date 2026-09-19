@@ -9,6 +9,7 @@ front end holds no state, so its whole job is to call the session and redraw.
 
 from __future__ import annotations
 
+import dataclasses
 from pathlib import Path
 from typing import Final
 
@@ -28,12 +29,13 @@ from comparative_judgment.core.models import (
     DetectableBy,
     Finding,
     Outcome,
+    Progress,
     Tier,
 )
 from comparative_judgment.core.session import Session
 from comparative_judgment.core.shapes import as_dict, as_int, as_list, as_str, field
 from comparative_judgment.core.store import Store
-from comparative_judgment.ui.tui import ComparisonApp, _render_card
+from comparative_judgment.ui.tui import ComparisonApp, _remaining, _render_card
 
 DOC: Final[str] = "findings:\n" + "".join(
     f"  - id: F-{i}\n    observation: observation number {i}\n"
@@ -170,6 +172,71 @@ class TestKeypressesReachTheSession:
         assert len(app._session._store.active_comparisons()) == spent
         app.on_mount()
         assert "complete" in widgets["#progress"].text
+
+
+class TestRemainingAndTheClock:
+    """D40 in the front end: spent beside remaining, and this sitting's time."""
+
+    def _app(
+        self, session: Session, monkeypatch: pytest.MonkeyPatch
+    ) -> tuple[ComparisonApp, dict[str, _StubWidget]]:
+        app = ComparisonApp(session)
+        widgets: dict[str, _StubWidget] = {}
+        monkeypatch.setattr(
+            app, "query_one", lambda s, _t=None: widgets.setdefault(s, _StubWidget())
+        )
+        return app, widgets
+
+    def test_the_progress_line_shows_spent_and_remaining(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        app, widgets = self._app(_session(tmp_path), monkeypatch)
+        app.on_mount()
+        assert "comparisons: 0" in widgets["#progress"].text
+        assert "remaining: at least 6" in widgets["#progress"].text
+        app.action_choose_left()
+        assert "comparisons: 1" in widgets["#progress"].text
+        assert "remaining: at least 5" in widgets["#progress"].text
+
+    def test_the_clock_shows_the_sitting_from_the_session(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        ticks = iter([10.0, 10.0, 85.0, 3_700.0])
+        store = Store.create(tmp_path / "s")
+        store.put_findings(parse_findings(DOC).admitted)
+        session = Session(store, rater_id="r", monotonic=lambda: next(ticks))
+        app, widgets = self._app(session, monkeypatch)
+        app.on_mount()
+        assert widgets["#clock"].text == "this sitting: 0:00"
+        app._tick()
+        assert widgets["#clock"].text == "this sitting: 1:15"
+        app._tick()
+        assert widgets["#clock"].text == "this sitting: 1:01:30"
+
+    def test_the_clock_starts_once_the_first_frame_is_up(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        app, _ = self._app(_session(tmp_path), monkeypatch)
+        started: list[tuple[float, object]] = []
+        monkeypatch.setattr(app, "set_interval", lambda every, then: started.append((every, then)))
+        app.on_ready()
+        assert started == [(1.0, app._tick)]
+
+    def test_a_blocked_batch_shows_no_estimate(self) -> None:
+        blocked = Progress(
+            admitted=2,
+            excluded_questions=0,
+            comparisons_spent=1,
+            ties=0,
+            min_appearances=1,
+            mean_appearances=1.0,
+            appearance_target=3,
+            complete=False,
+            blocked_reason="inverted",
+        )
+        assert _remaining(blocked) == "remaining: -"
+        exact = dataclasses.replace(blocked, blocked_reason="", comparisons_remaining=4)
+        assert _remaining(exact) == "remaining: 4"
 
 
 class TestShapesRefusals:

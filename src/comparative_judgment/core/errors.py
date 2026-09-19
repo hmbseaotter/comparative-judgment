@@ -113,6 +113,45 @@ class BandsNotAssignedError(ComparativeJudgmentError):
     """
 
 
+class OutputWriteError(ComparativeJudgmentError):
+    """A diagnostics report or an anchor-set file could not be written where asked.
+
+    The severity file has its own refusal; this is the same courtesy for the two
+    files phase 2 added, so a missing directory is a named refusal and not a
+    traceback.
+    """
+
+
+class AnchorSetError(ComparativeJudgmentError):
+    """An anchor-set file is unreadable, malformed, or does not say what it claims.
+
+    Raised at the parse boundary, before anything is written (D26). The file was
+    produced by somebody else's store, so it is checked as untrusted input: its
+    version must be the hash of its content, and every finding's text must hash to
+    the content hash it states, or the judgments it carries would attach to text
+    nobody compared.
+    """
+
+
+class ImportConflictError(ComparativeJudgmentError):
+    """An anchor set that is well formed and cannot be merged into this store.
+
+    Already imported, an identifier this store holds with different text or has
+    retired, cuts that differ from the store's own, a merge that would invert a
+    cut, or judged findings the placement loop could not then bridge. Refused by
+    name with nothing written, as a changed or removed finding is (D18, D22).
+    """
+
+
+class IncompleteImportError(ComparativeJudgmentError):
+    """An earlier import was interrupted part-way, and nothing else may write until it finishes.
+
+    The import record is written first and names how many comparisons follow, so
+    the gap is exact. Running the same import again completes it; any other write
+    would build on a scale that is missing judgments the record says it holds.
+    """
+
+
 class CutError(ComparativeJudgmentError):
     """A band cut is missing, malformed, or its anchor pair has inverted.
 

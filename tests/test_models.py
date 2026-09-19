@@ -14,11 +14,15 @@ import pytest
 from comparative_judgment.core.models import (
     BANDS,
     CUT_ORDER,
+    AnchorComparison,
+    AnchorSetBridge,
     Comparison,
     Cut,
     CutName,
     DetectableBy,
     Finding,
+    ImportRecorded,
+    ItemDiagnostics,
     Outcome,
     Tier,
     content_hash,
@@ -53,6 +57,18 @@ class TestImmutability:
                 Outcome.RIGHT,
             ),
             (Cut(CutName.HIGH_MEDIUM, "a", "b"), "above_id", "z"),
+            (ItemDiagnostics("a", 0.0, 2.0, 0, 0, 0, None, None, None), "se", 1.0),
+            (
+                AnchorComparison("a", "b", Outcome.LEFT, "r", "s", "t"),
+                "outcome",
+                Outcome.RIGHT,
+            ),
+            (
+                ImportRecorded(1, "v", "h", (), (), (), 0, 0, "r", "import", "t"),
+                "appended",
+                9,
+            ),
+            (AnchorSetBridge("v", 1, 0, 0), "bridging", 5),
         ],
     )
     def test_records_reject_mutation(self, obj: object, attr: str, value: object) -> None:

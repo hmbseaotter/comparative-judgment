@@ -24,12 +24,31 @@ from textual.containers import Horizontal, Vertical
 from textual.widgets import Footer, Static
 
 from comparative_judgment.core.errors import NothingToJudgeError
-from comparative_judgment.core.models import Finding, Outcome, PairForReview
+from comparative_judgment.core.models import Finding, Outcome, PairForReview, Progress
 from comparative_judgment.core.session import Session
+
+
+def _remaining(progress: Progress) -> str:
+    """The estimate as a rater reads it: a bound says so, and a blocked batch has none."""
+    if progress.comparisons_remaining is None:
+        return "remaining: -"
+    if progress.remaining_is_lower_bound:
+        return f"remaining: at least {progress.comparisons_remaining}"
+    return f"remaining: {progress.comparisons_remaining}"
+
+
+def _elapsed(seconds: float) -> str:
+    """This sitting's time as h:mm:ss, or m:ss under an hour."""
+    whole = int(seconds)
+    hours, rest = divmod(whole, 3600)
+    minutes, secs = divmod(rest, 60)
+    return f"{hours}:{minutes:02d}:{secs:02d}" if hours else f"{minutes}:{secs:02d}"
+
 
 _CSS: Final[str] = """
 Screen { layout: vertical; }
 #progress { height: 3; padding: 1 2; background: $panel; }
+#clock { height: 1; padding: 0 2; background: $panel; color: $text-muted; }
 #panes { height: 1fr; }
 .card { width: 1fr; padding: 1 2; border: round $primary; }
 .card-title { text-style: bold; }
@@ -75,6 +94,7 @@ class ComparisonApp(App[int]):
 
     def compose(self) -> ComposeResult:
         yield Static("", id="progress")
+        yield Static("", id="clock")
         with Horizontal(id="panes"):
             with Vertical(classes="card"):
                 yield Static("", id="left")
@@ -85,10 +105,26 @@ class ComparisonApp(App[int]):
     def on_mount(self) -> None:
         self._refresh()
 
+    def on_ready(self) -> None:
+        """Start the sitting's clock once the first frame is up.
+
+        Here rather than in `on_mount`, because a timer needs the running event
+        loop, and ticking reads only the session's clock -- never the log -- so a
+        once-a-second redraw costs the comparison loop nothing.
+        """
+        self.set_interval(1.0, self._tick)
+
     # -- drawing -----------------------------------------------------------
+
+    def _tick(self) -> None:
+        """Redraw the elapsed time for this sitting (D40); the session holds the clock."""
+        self.query_one("#clock", Static).update(
+            f"this sitting: {_elapsed(self._session.elapsed_seconds())}"
+        )
 
     def _refresh(self) -> None:
         """Re-read everything from the session. Nothing is cached here."""
+        self._tick()
         pair = self._session.next_pair()
         progress = self._session.progress()
 
@@ -103,8 +139,9 @@ class ComparisonApp(App[int]):
                 )
                 self.query_one("#left", Static).update(
                     f"{progress.blocked_reason}\n\n"
-                    "Nothing is lost: every judgment is in the log. Fix the cuts with "
-                    "`cj cuts` and this picks up where it stopped."
+                    "Nothing is lost: every judgment is in the log. Resolve what is named "
+                    "above -- the cuts with `cj cuts`, or an interrupted import by running it "
+                    "again -- and this picks up where it stopped."
                 )
             elif progress.placing:
                 self.query_one("#progress", Static).update(
@@ -125,7 +162,7 @@ class ComparisonApp(App[int]):
             self.query_one("#right", Static).update("")
             return
 
-        self._update_progress(pair, progress.mean_appearances, progress.items_below_target)
+        self._update_progress(pair, progress)
         self.query_one("#left", Static).update(
             _render_card(pair.left, "A", pair.appearances_left, pair.appearance_target)
         )
@@ -133,14 +170,14 @@ class ComparisonApp(App[int]):
             _render_card(pair.right, "D", pair.appearances_right, pair.appearance_target)
         )
 
-    def _update_progress(
-        self, pair: PairForReview, mean_appearances: float, remaining: tuple[str, ...]
-    ) -> None:
+    def _update_progress(self, pair: PairForReview, progress: Progress) -> None:
+        """Spent beside remaining, so the cost is read against what is left of it (D40)."""
         self.query_one("#progress", Static).update(
             f"Which is WORSE?    "
             f"comparisons: {pair.comparisons_spent}    "
-            f"mean appearances: {mean_appearances:.1f}/{pair.appearance_target}    "
-            f"items still short: {len(remaining)}"
+            f"{_remaining(progress)}    "
+            f"mean appearances: {progress.mean_appearances:.1f}/{pair.appearance_target}    "
+            f"items still short: {len(progress.items_below_target)}"
         )
 
     # -- actions -----------------------------------------------------------

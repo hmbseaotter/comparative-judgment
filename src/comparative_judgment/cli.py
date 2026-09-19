@@ -22,8 +22,20 @@ from collections.abc import Sequence
 from pathlib import Path
 
 from comparative_judgment.core.errors import ComparativeJudgmentError
-from comparative_judgment.core.models import CUT_ORDER, Cut, CutSeparation, ProposedBand
-from comparative_judgment.core.session import DEFAULT_APPEARANCE_TARGET, Session
+from comparative_judgment.core.models import (
+    CUT_ORDER,
+    ComponentReport,
+    Cut,
+    CutSeparation,
+    Diagnostics,
+    Progress,
+    ProposedBand,
+)
+from comparative_judgment.core.session import (
+    DEFAULT_APPEARANCE_TARGET,
+    REGION_COMPARISONS,
+    Session,
+)
 
 #: The location this project's own documentation and examples use. It is
 #: gitignored so that following the examples cannot produce a file that quietly
@@ -187,12 +199,22 @@ def _print_proposals(proposals: Sequence[ProposedBand]) -> None:
         print(f"  {_proposal(proposal)}")
 
 
+def _remaining(progress: Progress) -> str:
+    """The estimate as a rater reads it: a bound says so, and a blocked batch has none (D40)."""
+    if progress.comparisons_remaining is None:
+        return "n/a (blocked)"
+    if progress.remaining_is_lower_bound:
+        return f"at least {progress.comparisons_remaining}"
+    return str(progress.comparisons_remaining)
+
+
 def cmd_status(args: argparse.Namespace) -> int:
     session = _session(args, target=args.target)
     progress = session.progress()
     print(f"admitted            {progress.admitted}")
     print(f"excluded questions  {progress.excluded_questions}")
     print(f"comparisons spent   {progress.comparisons_spent}  (ties: {progress.ties})")
+    print(f"comparisons left    {_remaining(progress)}")
     print(f"appearance target   {progress.appearance_target}")
     print(
         f"appearances         min {progress.min_appearances}, mean {progress.mean_appearances:.2f}"
@@ -360,6 +382,135 @@ def cmd_export(args: argparse.Namespace) -> int:
     return 0
 
 
+def _number(value: float | None, width: int = 7, places: int = 3) -> str:
+    return f"{'-':>{width}}" if value is None else f"{value:>{width}.{places}f}"
+
+
+def _print_components(components: Sequence[ComponentReport]) -> None:
+    if len(components) <= 1:
+        return
+    print()
+    print(f"WARNING: {len(components)} groups never compared against each other. Their scale")
+    print("  values have independent origins; regions stay inside one group, and `bands`")
+    print("  and `export` refuse until a comparison joins them.")
+    for index, group in enumerate(components, start=1):
+        print(
+            f"    {index}. {len(group.members)} finding(s), {group.imported} imported, "
+            f"{group.local} local: {_listed(group.members, 6)}"
+        )
+
+
+def _print_diagnostics(report: Diagnostics) -> None:
+    print(f"comparison log      {report.comparison_log_hash[:16]}")
+    print(f"anchor set          {report.anchor_set_version}")
+    print(f"regularization      lambda = {report.regularization}")
+    print(
+        f"comparisons         {report.comparisons}  "
+        f"(ties: {report.ties}, tie rate {report.tie_rate:.3f})"
+    )
+    if report.blocked_reason:
+        print()
+        print(f"BLOCKED: {report.blocked_reason}")
+
+    print()
+    print(
+        f"soft regions, highest infit first (about {REGION_COMPARISONS} decided comparisons each;"
+    )
+    print("  read by rank -- a consistent rater scores well below 1 on sparse data):")
+    if not report.regions:
+        print("  none: no decided comparison yet")
+    for region in report.regions:
+        cuts = f"   straddles {', '.join(c.value for c in region.cuts)}" if region.cuts else ""
+        group = f"   group {region.component}" if len(report.components) > 1 else ""
+        print(
+            f"  {region.rank:>3}. theta {region.low:+.3f} .. {region.high:+.3f}   "
+            f"infit {region.infit:.3f}   outfit {region.outfit:.3f}   "
+            f"{region.comparisons} compared, {region.ties} tied{cuts}{group}"
+        )
+        print(f"       {_listed(region.findings)}")
+
+    print()
+    print(
+        f"{'finding':<16} {'theta':>8} {'se':>7} {'app':>4} {'inf':>4} {'ties':>4} "
+        f"{'infit':>7} {'outfit':>7}"
+    )
+    for item in sorted(report.items, key=lambda i: (-i.theta, i.finding_id)):
+        print(
+            f"{item.finding_id:<16} {item.theta:>+8.4f} {item.se:>7.3f} {item.appearances:>4} "
+            f"{item.informative:>4} {item.ties:>4} {_number(item.infit)} {_number(item.outfit)}"
+        )
+
+    _print_components(report.components)
+    for bridge in report.anchor_sets:
+        print()
+        print(
+            f"anchor set {bridge.anchor_set_version}: {bridge.new} finding(s) imported, "
+            f"{bridge.shared} shared, {bridge.bridging} bridging comparison(s)"
+        )
+
+
+def cmd_diagnostics(args: argparse.Namespace) -> int:
+    """Where the scale is soft and how precisely each finding sits (D37-D39, D44)."""
+    session = _session(args, target=args.target)
+    report = session.write_diagnostics(Path(args.out)) if args.out else session.diagnostics()
+    _print_diagnostics(report)
+    if args.out:
+        print()
+        print(f"wrote the report to {args.out}")
+    return 0
+
+
+def cmd_export_anchors(args: argparse.Namespace) -> int:
+    session = _session(args, target=args.target)
+    result = session.export_anchor_set(Path(args.out))
+    print(
+        f"wrote anchor set {result.version} to {args.out}: {result.findings} finding(s), "
+        f"{result.comparisons} comparison(s) and the three cuts"
+    )
+    print("  the file holds findings text; keep it wherever you would keep the store")
+    return 0
+
+
+def cmd_import_anchors(args: argparse.Namespace) -> int:
+    """Bring another store's anchors in, reporting how firmly they are tied to this one (D41)."""
+    if not args.rater:
+        print(
+            "--rater is required to import an anchor set: the import is written into the "
+            "log as a record of who brought another store's judgments into this one",
+            file=sys.stderr,
+        )
+        return 1
+    session = Session.open(Path(args.store), rater_id=args.rater)
+    outcome = session.import_anchor_set(Path(args.anchors))
+    if not outcome.applied:
+        print(
+            f"this store already holds everything anchor set {outcome.anchor_set_version} "
+            f"carries ({len(outcome.shared_findings)} finding(s), {outcome.skipped} "
+            "comparison(s)); wrote nothing"
+        )
+        return 0
+
+    verb = "completed the interrupted import of" if outcome.resumed else "imported"
+    print(f"{verb} anchor set {outcome.anchor_set_version}")
+    print(
+        f"  findings              {len(outcome.new_findings)} new, "
+        f"{len(outcome.shared_findings)} already held"
+    )
+    print(
+        f"  comparisons           {outcome.appended} appended, {outcome.skipped} already in the log"
+    )
+    print(f"  cuts                  {'adopted' if outcome.cuts_adopted else 'already the same'}")
+    bridging = outcome.bridge.bridging if outcome.bridge else 0
+    print(f"  bridging comparisons  {bridging}")
+    print("    (decided comparisons between a finding the set added and one outside it;")
+    print("     placing this store's own findings against the imported cuts adds them)")
+    _print_components(outcome.components)
+    print()
+    print("No band was assigned: `cj bands` shows them as proposals, and `cj assign`")
+    print("fixes them once placement is done.")
+    return 0
+
+
 def cmd_compare(args: argparse.Namespace) -> int:
     from comparative_judgment.ui.tui import run_comparison_app
 
@@ -469,6 +620,28 @@ def build_parser() -> argparse.ArgumentParser:
     add_store(export, rater=True, target=True)
     export.add_argument("--out", required=True, help="path to write")
     export.set_defaults(func=cmd_export)
+
+    diagnostics = subparsers.add_parser(
+        "diagnostics", help="standard errors, misfit, tie rate and the scale's soft regions"
+    )
+    add_store(diagnostics, rater=True, target=True)
+    diagnostics.add_argument("--out", help="also write the report as JSON to this path")
+    diagnostics.set_defaults(func=cmd_diagnostics)
+
+    export_anchors = subparsers.add_parser(
+        "export-anchors", help="write this store's anchor set for another store to import"
+    )
+    add_store(export_anchors, rater=True, target=True)
+    export_anchors.add_argument("--out", required=True, help="path to write")
+    export_anchors.set_defaults(func=cmd_export_anchors)
+
+    import_anchors = subparsers.add_parser(
+        "import-anchors", help="bring another store's anchor set into this one"
+    )
+    import_anchors.add_argument("--store", required=True, help="path to the store directory")
+    import_anchors.add_argument("--anchors", required=True, help="the anchor-set file to import")
+    import_anchors.add_argument("--rater", help="who is importing (required; recorded in the log)")
+    import_anchors.set_defaults(func=cmd_import_anchors)
 
     return parser
 

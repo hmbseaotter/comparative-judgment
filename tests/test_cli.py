@@ -602,3 +602,170 @@ class TestCutArgumentParsing:
         )
         assert code == 1
         assert "at least four findings" in capsys.readouterr().err
+
+
+class TestPhaseTwoCommands:
+    """`diagnostics`, `export-anchors`, `import-anchors`, and the estimate in `status`."""
+
+    def _with_cuts(self, workspace: Path) -> str:
+        from comparative_judgment.core.models import Outcome
+        from comparative_judgment.core.session import Session
+        from comparative_judgment.core.store import Store
+
+        store = _store(workspace)
+        main(["init", "--store", store])
+        main(["load", "--store", store, "--findings", str(workspace / "findings.yaml")])
+        session = Session(Store.open(workspace / ".cj-store"), rater_id="r", appearance_target=3)
+        while session.next_pair() is not None:
+            session.record(Outcome.LEFT)
+        ranked = [e.finding_id for e in session._fit().ranked()]
+        assert (
+            main(
+                [
+                    "cuts",
+                    "--store",
+                    store,
+                    "--critical-high",
+                    f"{ranked[0]}:{ranked[1]}",
+                    "--high-medium",
+                    f"{ranked[1]}:{ranked[2]}",
+                    "--medium-low",
+                    f"{ranked[2]}:{ranked[3]}",
+                    "--critical-high-note",
+                    NOTE,
+                ]
+            )
+            == 0
+        )
+        return store
+
+    def test_status_names_the_comparisons_left(
+        self, workspace: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        store = _store(workspace)
+        main(["init", "--store", store])
+        main(["load", "--store", store, "--findings", str(workspace / "findings.yaml")])
+        capsys.readouterr()
+        assert main(["status", "--store", store, "--target", "3"]) == 0
+        assert "comparisons left    at least 6" in capsys.readouterr().out
+
+    def test_diagnostics_names_errors_misfit_tie_rate_and_ranked_regions(
+        self, workspace: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        store = self._with_cuts(workspace)
+        capsys.readouterr()
+        out_path = workspace / "diagnostics.json"
+        assert main(["diagnostics", "--store", store, "--out", str(out_path)]) == 0
+        out = capsys.readouterr().out
+        for label in ("tie rate", "soft regions", "se", "infit", "outfit", "  1. theta"):
+            assert label in out, label
+        payload = json.loads(out_path.read_text(encoding="utf-8"))
+        assert payload["regions"][0]["rank"] == 1
+        assert {"se", "infit", "outfit", "tie_rate"} <= set(payload["items"][0])
+
+    def test_an_anchor_set_moves_between_stores_with_its_bridging_count(
+        self, workspace: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """The phase's own condition, end to end through the command line."""
+        source = self._with_cuts(workspace)
+        anchors_path = workspace / "anchors.json"
+        assert main(["export-anchors", "--store", source, "--out", str(anchors_path)]) == 0
+        target = str(workspace / "fresh")
+        assert main(["init", "--store", target]) == 0
+        capsys.readouterr()
+        assert (
+            main(
+                [
+                    "import-anchors",
+                    "--store",
+                    target,
+                    "--anchors",
+                    str(anchors_path),
+                    "--rater",
+                    "importer",
+                ]
+            )
+            == 0
+        )
+        out = capsys.readouterr().out
+        assert "imported anchor set" in out
+        assert "bridging comparisons  0" in out
+        assert "cuts                  adopted" in out
+
+    def test_import_without_a_rater_is_refused_by_name(
+        self, workspace: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        source = self._with_cuts(workspace)
+        anchors_path = workspace / "anchors.json"
+        main(["export-anchors", "--store", source, "--out", str(anchors_path)])
+        target = str(workspace / "fresh")
+        main(["init", "--store", target])
+        before = (workspace / "fresh" / "comparisons.jsonl").read_bytes()
+        capsys.readouterr()
+        assert main(["import-anchors", "--store", target, "--anchors", str(anchors_path)]) == 1
+        assert "--rater is required" in capsys.readouterr().err
+        assert (workspace / "fresh" / "comparisons.jsonl").read_bytes() == before
+
+    def test_a_repeated_import_is_a_named_refusal_not_a_traceback(
+        self, workspace: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        source = self._with_cuts(workspace)
+        anchors_path = workspace / "anchors.json"
+        main(["export-anchors", "--store", source, "--out", str(anchors_path)])
+        target = str(workspace / "fresh")
+        main(["init", "--store", target])
+        command = ["import-anchors", "--store", target, "--anchors", str(anchors_path)]
+        assert main([*command, "--rater", "r"]) == 0
+        capsys.readouterr()
+        assert main([*command, "--rater", "r"]) == 1
+        err = capsys.readouterr().err
+        assert err.startswith("ImportConflictError:") and "already imported" in err
+
+    def test_an_import_that_brings_nothing_new_says_so(
+        self, workspace: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Importing a store's own anchor set back into it writes nothing."""
+        source = self._with_cuts(workspace)
+        anchors_path = workspace / "anchors.json"
+        main(["export-anchors", "--store", source, "--out", str(anchors_path)])
+        log = workspace / ".cj-store" / "comparisons.jsonl"
+        before = log.read_bytes()
+        capsys.readouterr()
+        command = ["import-anchors", "--store", source, "--anchors", str(anchors_path)]
+        assert main([*command, "--rater", "r"]) == 0
+        assert "wrote nothing" in capsys.readouterr().out
+        assert log.read_bytes() == before
+
+    def test_diagnostics_over_a_disconnected_store_names_its_groups(
+        self, workspace: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        _disconnected(workspace)
+        capsys.readouterr()
+        assert main(["diagnostics", "--store", _store(workspace)]) == 0
+        out = capsys.readouterr().out
+        assert "WARNING: 2 groups never compared against each other" in out
+        assert "group 1" in out and "group 2" in out
+
+    def test_diagnostics_before_any_comparison_says_there_are_no_regions(
+        self, workspace: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        store = _store(workspace)
+        main(["init", "--store", store])
+        main(["load", "--store", store, "--findings", str(workspace / "findings.yaml")])
+        capsys.readouterr()
+        assert main(["diagnostics", "--store", store]) == 0
+        assert "none: no decided comparison yet" in capsys.readouterr().out
+
+    def test_diagnostics_after_an_import_reports_the_bridge(
+        self, workspace: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        source = self._with_cuts(workspace)
+        anchors_path = workspace / "anchors.json"
+        main(["export-anchors", "--store", source, "--out", str(anchors_path)])
+        target = str(workspace / "fresh")
+        main(["init", "--store", target])
+        main(["import-anchors", "--store", target, "--anchors", str(anchors_path), "--rater", "r"])
+        capsys.readouterr()
+        assert main(["diagnostics", "--store", target]) == 0
+        out = capsys.readouterr().out
+        assert "finding(s) imported, 0 shared, 0 bridging comparison(s)" in out

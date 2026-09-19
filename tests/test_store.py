@@ -13,12 +13,15 @@ from pathlib import Path
 
 import pytest
 
+from comparative_judgment.core.anchors import write_anchor_set
+from comparative_judgment.core.diagnostics import write_diagnostics
 from comparative_judgment.core.errors import (
     NoStorePathError,
     StoreSchemaError,
     UnknownItemError,
 )
 from comparative_judgment.core.models import (
+    AnchorSet,
     Comparison,
     Cut,
     CutName,
@@ -29,8 +32,9 @@ from comparative_judgment.core.models import (
     Tier,
     content_hash,
 )
+from comparative_judgment.core.session import Session
 from comparative_judgment.core.severity import write_severity_file
-from comparative_judgment.core.store import LOG_FILE, META_FILE, Store
+from comparative_judgment.core.store import FINDINGS_FILE, LOG_FILE, META_FILE, Store
 
 
 def _finding(fid: str, tier: Tier = Tier.DEFECT) -> Finding:
@@ -330,10 +334,145 @@ class TestLineEndings:
         )
         written.put_cuts([Cut(CutName.MEDIUM_LOW, "F-2", "F-3")])
         write_severity_file(tmp_path / "severity.json", assignments=(), store=written)
+        # The two files phase 2 writes: D35 covers every writer, not only the first four.
+        diagnostics = Session(written, rater_id="r").diagnostics()
+        write_diagnostics(tmp_path / "diagnostics.json", diagnostics)
+        write_anchor_set(
+            tmp_path / "anchors.json",
+            AnchorSet(
+                version="v",
+                source_log_hash="h",
+                findings=(_finding("F-1"),),
+                comparisons=(),
+                cuts=(),
+            ),
+        )
         monkeypatch.undo()
 
         names = {name for name, _ in requested}
-        assert {META_FILE, "findings.jsonl", LOG_FILE, "cuts.json", "severity.json"} <= names
+        outputs = ("severity.json", "diagnostics.json", "anchors.json")
+        assert {META_FILE, "findings.jsonl", LOG_FILE, "cuts.json", *outputs} <= names
         assert [entry for entry in requested if entry[1] != "\n"] == []
-        for path in (*written.path.iterdir(), tmp_path / "severity.json"):
+        for path in (*written.path.iterdir(), *(tmp_path / name for name in outputs)):
             assert b"\r" not in path.read_bytes(), f"{path.name} carries a carriage return"
+
+
+class TestParseMemo:
+    """D45: parsed once per change, and never trusted without looking (D19's lesson)."""
+
+    def test_a_handle_sees_another_handles_append(self, store: Store) -> None:
+        store.put_findings([_finding("F-1"), _finding("F-2")])
+        other = Store.open(store.path, clock=_fixed_clock)
+        assert store.log() == ()
+        other.append_comparison(
+            left_id="F-1", right_id="F-2", outcome=Outcome.LEFT, rater_id="r", session_id="s"
+        )
+        assert len(store.log()) == 1, "a memo that missed another handle's append"
+
+    def test_a_handle_sees_another_handles_findings(self, store: Store) -> None:
+        store.put_findings([_finding("F-1")])
+        assert [f.id for f in store.findings()] == ["F-1"]
+        Store.open(store.path).put_findings([_finding("F-1"), _finding("F-2")])
+        assert [f.id for f in store.findings()] == ["F-1", "F-2"]
+
+    def test_an_unchanged_file_is_not_parsed_again(self, store: Store) -> None:
+        store.put_findings([_finding("F-1"), _finding("F-2")])
+        store.append_comparison(
+            left_id="F-1", right_id="F-2", outcome=Outcome.LEFT, rater_id="r", session_id="s"
+        )
+        assert store.log() is store.log()
+        assert store.document_findings() is store.document_findings()
+
+    def test_a_write_through_the_handle_is_seen_at_once(self, store: Store) -> None:
+        store.put_findings([_finding("F-1"), _finding("F-2")])
+        first = store.findings()
+        store.put_findings([_finding("F-2")])
+        assert store.findings() != first
+
+
+class TestLineSplitting:
+    def test_a_line_separator_inside_a_record_does_not_split_it(self, store: Store) -> None:
+        """`str.splitlines()` splits on U+2028 and U+0085, which `json.dumps` writes raw."""
+        text = "before" + chr(0x2028) + "after" + chr(0x85) + "end"
+        finding = Finding(
+            id="F-1",
+            content_hash=content_hash(observation=text, evidence=("e",), consequence="c"),
+            observation=text,
+            evidence=("e",),
+            consequence="c",
+            detectable_by=DetectableBy.JUDGE,
+            tier=Tier.DEFECT,
+        )
+        store.put_findings([finding])
+        raw = (store.path / FINDINGS_FILE).read_text(encoding="utf-8")
+        assert len(raw.splitlines()) > 1, "precondition: the old reader would have split it"
+        assert Store.open(store.path).findings()[0].observation == text
+
+    def test_an_unknown_outcome_in_the_log_is_a_named_refusal(self, store: Store) -> None:
+        store.put_findings([_finding("F-1"), _finding("F-2")])
+        store.append_comparison(
+            left_id="F-1", right_id="F-2", outcome=Outcome.LEFT, rater_id="r", session_id="s"
+        )
+        log = store.path / LOG_FILE
+        log.write_text(
+            log.read_text(encoding="utf-8").replace('"left"', '"sideways"'),
+            encoding="utf-8",
+            newline="\n",
+        )
+        with pytest.raises(StoreSchemaError, match="sideways"):
+            Store.open(store.path).log()
+
+
+class TestTheMemoAcrossOwnAppends:
+    """An own append extends the memo only on proof, and the result equals a fresh parse."""
+
+    def test_an_extended_memo_equals_a_fresh_parse(self, store: Store) -> None:
+        store.put_findings([_finding("F-1"), _finding("F-2"), _finding("F-3")])
+        store.log()
+        first = store.append_comparison(
+            left_id="F-1", right_id="F-2", outcome=Outcome.LEFT, rater_id="r", session_id="s"
+        )
+        store.append_comparison(
+            left_id="F-2", right_id="F-3", outcome=Outcome.TIE, rater_id="r", session_id="s"
+        )
+        store.append_retraction(retracts_seq=first.seq, rater_id="r", session_id="s")
+        assert store._log_memo is not None, "the memo was dropped rather than extended"
+        assert store.log() == Store.open(store.path).log()
+
+    def test_an_interleaved_append_drops_the_memo_rather_than_extending_it(
+        self, store: Store, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Another handle's line lands between this handle's stat and its write."""
+        store.put_findings([_finding("F-1"), _finding("F-2")])
+        store.log()
+        other = Store.open(store.path, clock=_fixed_clock)
+        original_open = Path.open
+        interleaved: list[bool] = []
+
+        def open_(
+            self: Path,
+            mode: str = "r",
+            buffering: int = -1,
+            encoding: str | None = None,
+            errors: str | None = None,
+            newline: str | None = None,
+        ) -> object:
+            if mode == "a" and self.name == LOG_FILE and not interleaved:
+                interleaved.append(True)
+                other.append_comparison(
+                    left_id="F-2",
+                    right_id="F-1",
+                    outcome=Outcome.LEFT,
+                    rater_id="o",
+                    session_id="o",
+                )
+            return original_open(self, mode, buffering, encoding, errors, newline)
+
+        monkeypatch.setattr(Path, "open", open_)
+        store.append_comparison(
+            left_id="F-1", right_id="F-2", outcome=Outcome.LEFT, rater_id="r", session_id="s"
+        )
+        monkeypatch.undo()
+        assert interleaved, "precondition: the other handle's append ran"
+        assert len(store.log()) == 2
+        assert store.log() == Store.open(store.path).log()
