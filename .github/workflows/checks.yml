@@ -130,7 +130,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.HARNESS_DISPATCH_TOKEN }}
         # HARNESS_DISPATCH_TOKEN needs Actions: write on
-        # hmbseaotter/voice-agent-eval-harness and nothing else. It exists and
+        # hmbseaotter/voice-agent-eval-harness-private and nothing else. It exists and
         # the dispatch is armed: a push has used it (D31, the Armed banner). If
         # the secret is deleted this warns rather than fails, so that a missing
         # secret does not turn every spec push red -- but it warns loudly,
@@ -145,12 +145,12 @@ jobs:
             exit 0
           fi
           if gh workflow run checks.yml \
-               --repo hmbseaotter/voice-agent-eval-harness --ref main; then
+               --repo hmbseaotter/voice-agent-eval-harness-private --ref main; then
             echo "Asked the harness to run its interface scanner."
           else
             echo "::error title=Dispatch refused::HARNESS_DISPATCH_TOKEN is set but the"
             echo "::error::dispatch was refused. The token needs Actions: write on"
-            echo "::error::hmbseaotter/voice-agent-eval-harness; a token that can read the"
+            echo "::error::hmbseaotter/voice-agent-eval-harness-private; a token that can read the"
             echo "::error::repository but not run a workflow fails exactly here."
             exit 1
           fi
