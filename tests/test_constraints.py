@@ -586,6 +586,40 @@ def _spec_script(workflow: str) -> str:
     return script
 
 
+#: The repository the dispatch must name, in full. `voice-agent-eval-harness`
+#: is a *different* repository -- the snapshot published without its history --
+#: and this name contains it, so a substring check passes for either. The
+#: scanner runs in the working repository, and a token granted on the snapshot
+#: is refused.
+_DISPATCH_TARGET = "hmbseaotter/voice-agent-eval-harness-private"
+
+_DISPATCH_REPO = re.compile(r"--repo\s+(\S+)")
+_HARNESS_NAME = re.compile(r"(?:hmbseaotter/)?voice-agent-eval-harness[A-Za-z0-9._-]*")
+
+
+def _dispatch_repos(workflow: str) -> set[str]:
+    """Every repository the notify-harness job asks `gh` to run a workflow in."""
+    scripts = [step.get("run") for step in _notify_steps(workflow)]
+    return {
+        match.group(1)
+        for script in scripts
+        if isinstance(script, str)
+        for match in _DISPATCH_REPO.finditer(script)
+    }
+
+
+def _harness_names(workflow: str) -> set[str]:
+    """Every harness repository the workflow names, comments included.
+
+    Read from the text rather than the parsed YAML, because the comment above
+    the step and the error message inside it both name the repository, and a
+    rename that misses either leaves a reader following a name that is wrong.
+    """
+    return {
+        match.group(0).removeprefix("hmbseaotter/") for match in _HARNESS_NAME.finditer(workflow)
+    }
+
+
 #: What the runner must hand the narrowing: the history comes from the checkout
 #: and the range from the step's env. The case test sets both itself, so neither
 #: is visible to it.
@@ -1406,11 +1440,26 @@ class TestDocumentation:
         loudly when it is missing -- but the job, its narrowing to spec
         changes, and the repository it names are all things a future edit
         could quietly drop, and those are checkable from here.
+
+        The repository is asserted whole rather than as a fragment. It was a
+        fragment, `voice-agent-eval-harness`, which the snapshot repository
+        published under that exact name and the working repository's name
+        contains -- so the check passed for whichever of the two the workflow
+        named, and the one it must name is the working repository.
         """
         workflow = (REPO_ROOT / ".github" / "workflows" / "checks.yml").read_text(encoding="utf-8")
+        assert _dispatch_repos(workflow) == {_DISPATCH_TARGET}, (
+            f"the dispatch runs a workflow in {sorted(_dispatch_repos(workflow))} rather than "
+            f"in {_DISPATCH_TARGET} alone, so a spec change here asks the wrong repository -- "
+            "or none -- to check the interface"
+        )
+        assert _harness_names(workflow) == {_DISPATCH_TARGET.removeprefix("hmbseaotter/")}, (
+            f"the workflow names {sorted(_harness_names(workflow))}, so its comment or its "
+            "error message names a harness repository the dispatch does not use, and a reader "
+            "granting the token by that name grants it on the wrong repository"
+        )
         for fragment, why in (
             ("notify-harness:", "the dispatch job is gone"),
-            ("voice-agent-eval-harness", "the dispatch no longer names the harness"),
             ("HARNESS_DISPATCH_TOKEN", "the dispatch no longer reads its token"),
             ("^specs/", "the dispatch no longer narrows to spec changes"),
             (
@@ -1423,6 +1472,38 @@ class TestDocumentation:
                 f"{why}, so a spec change here can break the shared findings interface "
                 "and nothing will say so until the harness next builds"
             )
+
+    def test_the_dispatch_target_check_notices_the_snapshot_and_a_dropped_repo(self) -> None:
+        """The control, planted on the real workflow text.
+
+        Three plants, one per way the target can go wrong: the snapshot named
+        in place of the working repository, the `--repo` argument dropped so
+        `gh` would fall back to wherever it runs, and a stale name left behind
+        in the error message the step prints. The first is what the fragment
+        this replaced could not see; the third is what reading only the parsed
+        YAML could not see.
+        """
+        workflow = _read_workflow()
+        assert _dispatch_repos(workflow) == {_DISPATCH_TARGET}, (
+            "the workflow already names something else, so no plant can be seen"
+        )
+        snapshot = workflow.replace(
+            f"--repo {_DISPATCH_TARGET}", "--repo hmbseaotter/voice-agent-eval-harness"
+        )
+        assert _dispatch_repos(snapshot) == {"hmbseaotter/voice-agent-eval-harness"}, (
+            "naming the snapshot left the dispatch target unchanged"
+        )
+        dropped = workflow.replace(f"--repo {_DISPATCH_TARGET} ", "")
+        assert _dispatch_repos(dropped) == set(), "dropping --repo left a target behind"
+        stale = workflow.replace(
+            f"{_DISPATCH_TARGET}; a token", "hmbseaotter/voice-agent-eval-harness; a token"
+        )
+        assert _dispatch_repos(stale) == {_DISPATCH_TARGET}, (
+            "the plant changed the dispatch itself, so it proves nothing about the prose"
+        )
+        assert _harness_names(stale) != _harness_names(workflow), (
+            "a stale name in the error message went unseen"
+        )
 
     def test_the_dispatch_narrowing_reads_every_commit_in_the_push(self, tmp_path: Path) -> None:
         """The narrowing decides on the whole push, not on its last commit.
