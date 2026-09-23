@@ -680,6 +680,25 @@ The cost of (A) is a list of exceptions in place of a list of targets, and that 
 > makes it to write the date down, and on that day the step fails the build and names the permission
 > it needs. A secret that is deleted rather than expired still only warns.
 
+> **The repositories are public, and the harness is now two of them, 2026-09-22.** Two statements
+> below were written while every repository here was private and the harness was one. **(B)'s first
+> cost is gone:** checking the harness out needs no read token now that it is public, so what
+> disqualifies (B) is the second cost alone — a copy of another project's tooling pinned in this one
+> — which is the half the *Why* already calls decisive. The decision stands unchanged, and the note
+> is here because a reader reconsidering the fork would otherwise weigh a price nobody pays any
+> more. **And *"`Actions: write` on the harness"* now names two repositories:** the snapshot
+> published without its history, and the working repository it is taken from. The grant is on the
+> working one, because that is where the scanner runs; a token granted on the snapshot is refused,
+> and the snapshot's name is the working one's with a suffix removed, so the Rule's test — which
+> asserted the repository by a fragment — passed for whichever the workflow named. It now asserts
+> the name whole, over every `--repo` the job hands `gh` and over the comments and error messages
+> beside it, and `test_the_readme_names_the_repository_the_dispatch_starts` holds the README's
+> table to whatever the workflow dispatches to, each with a control that plants the disagreement on
+> the real file. That second test exists because the drift had already happened in the direction
+> the Rule could not see: the workflow was corrected and the README was not, and nothing compared
+> them. Being public removes the need to **read** across a repository boundary and never the need
+> to **start** a workflow across one, so the token itself stays, expiry and all.
+
 **Fork:** D15 built a scanner comparing this specification against the consuming harness's, and put it in the harness, where it runs in the harness's CI. So an edit *here* that breaks the shared findings interface passes here, and goes on passing until that repository happens to build. D15's Rule named the gap and left it: *"judgment, not checkable until it is wired into a hook."* Wire it — and if so, from which side?
 
 **Options considered**
