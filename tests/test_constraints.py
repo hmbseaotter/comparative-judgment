@@ -620,6 +620,47 @@ def _harness_names(workflow: str) -> set[str]:
     }
 
 
+#: The helpers a test must reach for to be one of the guards over the dispatch
+#: target. Derived rather than listed, so a fifth such test is caught by being
+#: written rather than by somebody remembering to add it to a list -- which is
+#: the failure this file keeps filing against itself.
+_DISPATCH_HELPERS = frozenset({"_dispatch_repos", "_harness_names"})
+
+
+def _decision_entry(record: str, decision: str) -> str:
+    """One decision's entry, from its heading to the next one."""
+    start = re.search(rf"^## {decision} — ", record, re.MULTILINE)
+    if start is None:
+        return ""
+    rest = record[start.start() :]
+    following = re.search(r"^## ", rest[3:], re.MULTILINE)
+    return rest if following is None else rest[: following.start() + 3]
+
+
+def _unnamed_dispatch_tests(source: str, entry: str) -> list[str]:
+    """Guards over the dispatch target that the decision's entry does not name.
+
+    A decision is worth the tests its record points at, and the pointer is what
+    goes stale: a test added later is held by whoever remembers to mention it.
+    So the tests are read out of the suite rather than listed here -- any test
+    reaching for the helpers that read the dispatch target is one of them -- and
+    the entry is required to name each by the name pytest would run it under.
+
+    Takes both texts rather than reading them, so the control can run this over
+    a suite and a record it has mutated.
+    """
+    missing: list[str] = []
+    for node in ast.walk(ast.parse(source)):
+        if not isinstance(node, ast.FunctionDef) or not node.name.startswith("test_"):
+            continue
+        reached = {
+            inner.id for inner in ast.walk(node) if isinstance(inner, ast.Name)
+        } & _DISPATCH_HELPERS
+        if reached and node.name not in entry:
+            missing.append(node.name)
+    return sorted(missing)
+
+
 def _secret_rows(readme: str, secret: str) -> list[str]:
     """The README table rows that document a secret.
 
@@ -1729,6 +1770,65 @@ class TestDocumentation:
         assert _secret_rows(without, "HARNESS_DISPATCH_TOKEN") == [], (
             "removing the row left a row behind"
         )
+
+    def test_d31_names_every_test_that_holds_its_dispatch_target(self) -> None:
+        """A decision is worth the tests its record points at.
+
+        D31's Rule names one test, and the guard is four: the wiring assertion,
+        the README agreement, and a control each. The Rule is left as written,
+        because a Rule that named an enforcer wrongly was corrected by appending
+        once already (2026-09-07, D14's) and the record corrects by appending
+        rather than by rewriting -- so the entry as a whole is what must name
+        them, amendments included.
+
+        Which tests those are is read out of the suite, not listed here: a test
+        that reaches for the helpers reading the dispatch target is one of them.
+        A list would be exactly the guard-narrower-than-its-rule shape this file
+        has filed against itself three times.
+        """
+        source = Path(__file__).read_text(encoding="utf-8")
+        entry = _decision_entry(self.DECISIONS.read_text(encoding="utf-8"), "D31")
+        assert entry, "no D31 entry under the heading shape this reads; the record has moved"
+        missing = _unnamed_dispatch_tests(source, entry)
+        assert not missing, (
+            "D31 is held by tests its entry never names, so a reader asking what enforces "
+            "it is sent to a shorter list than the one that runs:\n  " + "\n  ".join(missing)
+        )
+
+    def test_the_rule_naming_guard_notices_a_test_the_entry_forgets(self) -> None:
+        """The control, planted on both sides the guard compares.
+
+        One plant per direction it can fail: a test the entry stops naming, and
+        a guard written but never recorded. The entry's extent is checked too,
+        since an entry running past its own heading would be satisfied by a name
+        under a later decision.
+        """
+        source = Path(__file__).read_text(encoding="utf-8")
+        record = self.DECISIONS.read_text(encoding="utf-8")
+        entry = _decision_entry(record, "D31")
+        assert not _unnamed_dispatch_tests(source, entry), (
+            "the entry already forgets a test, so no plant can be seen"
+        )
+
+        forgotten = "test_the_readme_names_the_repository_the_dispatch_starts"
+        assert forgotten in entry, f"the entry does not name {forgotten}"
+        assert _unnamed_dispatch_tests(source, entry.replace(forgotten, "")) == [forgotten], (
+            "dropping a test from the entry left the guard satisfied"
+        )
+
+        planted = (
+            "class TestPlanted:\n"
+            "    def test_a_new_guard_over_the_target(self) -> None:\n"
+            "        assert _dispatch_repos(workflow)\n"
+        )
+        assert _unnamed_dispatch_tests(planted, entry) == ["test_a_new_guard_over_the_target"], (
+            "a guard written over the dispatch target and never recorded went unseen"
+        )
+
+        assert _decision_entry(record, "D31").count("\n## ") == 0, (
+            "the entry runs past its own heading, so a name under a later decision would satisfy it"
+        )
+        assert _decision_entry(record, "D99") == "", "a decision that does not exist yielded text"
 
     def test_the_decision_record_states_its_own_high_water_mark(self) -> None:
         """The count of decisions, computed rather than maintained.

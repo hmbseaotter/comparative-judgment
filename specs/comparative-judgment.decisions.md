@@ -693,11 +693,17 @@ The cost of (A) is a list of exceptions in place of a list of targets, and that 
 > asserted the repository by a fragment — passed for whichever the workflow named. It now asserts
 > the name whole, over every `--repo` the job hands `gh` and over the comments and error messages
 > beside it, and `test_the_readme_names_the_repository_the_dispatch_starts` holds the README's
-> table to whatever the workflow dispatches to, each with a control that plants the disagreement on
-> the real file. That second test exists because the drift had already happened in the direction
-> the Rule could not see: the workflow was corrected and the README was not, and nothing compared
-> them. Being public removes the need to **read** across a repository boundary and never the need
-> to **start** a workflow across one, so the token itself stays, expiry and all.
+> table to whatever the workflow dispatches to. Each has a control that plants the disagreement on
+> the real file: `test_the_dispatch_target_check_notices_the_snapshot_and_a_dropped_repo` and
+> `test_the_readme_agreement_check_notices_the_snapshot_and_a_missing_row`. All four are named
+> here rather than in the Rule below, which is left as it was written, because a Rule that named
+> an enforcer wrongly was corrected by appending once before and the decision itself stays
+> untouched; a test added the next day holds this entry to naming every one of them, so a fifth
+> cannot join them without the record saying so. That second test exists because the drift had
+> already happened in the direction the Rule could not see: the workflow was corrected and the
+> README was not, and nothing compared them. Being public removes the need to **read** across a
+> repository boundary and never the need to **start** a workflow across one, so the token itself
+> stays, expiry and all.
 
 **Fork:** D15 built a scanner comparing this specification against the consuming harness's, and put it in the harness, where it runs in the harness's CI. So an edit *here* that breaks the shared findings interface passes here, and goes on passing until that repository happens to build. D15's Rule named the gap and left it: *"judgment, not checkable until it is wired into a hook."* Wire it — and if so, from which side?
 
