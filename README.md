@@ -278,13 +278,21 @@ So a push to `main` here that touches `specs/` asks the harness to run it now (D
 
 | secret | grants | on | so that |
 |---|---|---|---|
-| `HARNESS_DISPATCH_TOKEN` | `Actions: Read and write` | `voice-agent-eval-harness` | a spec change here can start the harness's workflow, which runs the interface scanner |
+| `HARNESS_DISPATCH_TOKEN` | `Actions: Read and write` | `voice-agent-eval-harness-private` | a spec change here can start the harness's workflow, which runs the interface scanner |
 
 `Actions: Read and write` is the narrowest grant that can start a workflow — GitHub offers no
 write-only option for it, and read alone cannot dispatch.
 
-**Making or replacing it** follows the harness's README, under *Access: three fine-grained tokens*,
-which walks through all three tokens these repositories use: creating one at
+**The grant is on `voice-agent-eval-harness-private`, not on the public
+[`voice-agent-eval-harness`](https://github.com/hmbseaotter/voice-agent-eval-harness) linked above.**
+The public one is a snapshot of the working repository, published without its history; the working
+repository is where the interface scanner lives and runs, so it is the one this workflow starts and
+the one the token needs the permission on. A token granted on the snapshot is refused, and the
+dispatch step says so by name.
+
+**Making or replacing it** follows the harness's README, under *Access: the tokens CI needs, and when
+it needs them*, which walks through any token these repositories need — this one today, and the read
+tokens again if copies are run privately: creating one at
 <https://github.com/settings/personal-access-tokens/new>, installing it here as a repository secret
 named exactly `HARNESS_DISPATCH_TOKEN`, and running this repository's workflow by hand to see the
 dispatch succeed. The steps are written there once rather than in each repository, so they cannot
@@ -297,10 +305,11 @@ permission needed, so the lapse shows up as a red build rather than as silence �
 reason it fails instead of warning.
 
 **The token installed now expires on 2026-11-06.** It was created on 2026-09-07 with a 60-day
-lifetime, which is the runway to finish the harness and the projects around it and make them public
-— a choice for that purpose, not a recommendation. Whoever replaces it updates this date. It is the
-author's token and reaches only the author's repository, so it works for nobody else: running these
-repositories under another account means making the tokens there, by the harness's steps.
+lifetime, which was the runway to finish the harness and the projects around it and make them public
+— done for all three by 2026-09-22 — a choice for that purpose, not a recommendation. Whoever
+replaces it updates this date. It is the author's token and reaches only the author's repository, so
+it works for nobody else: running these repositories under another account means making this token
+there, by the harness's steps.
 
 ## License
 
