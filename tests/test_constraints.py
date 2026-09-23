@@ -620,6 +620,18 @@ def _harness_names(workflow: str) -> set[str]:
     }
 
 
+def _secret_rows(readme: str, secret: str) -> list[str]:
+    """The README table rows that document a secret.
+
+    The row rather than the section, because the prose around it names both
+    harness repositories on purpose -- the grant is on one and explicitly not
+    on the other -- and a check that scanned the prose could only ever assert
+    that both are mentioned, which is what the row already went wrong while
+    saying.
+    """
+    return [line for line in readme.splitlines() if line.startswith("|") and f"`{secret}`" in line]
+
+
 #: What the runner must hand the narrowing: the history comes from the checkout
 #: and the range from the step's env. The case test sets both itself, so neither
 #: is visible to it.
@@ -1659,6 +1671,63 @@ class TestDocumentation:
         ), (
             "GITHUB_TOKEN is supplied by the runner, so demanding documentation for "
             "it would be a demand nobody can meet"
+        )
+
+    def test_the_readme_names_the_repository_the_dispatch_starts(self) -> None:
+        """The two documents must agree on which repository the token is for.
+
+        They did not. The workflow named the working repository and the
+        README's table named the published snapshot, whose name the working
+        one contains, and nothing compared them: the wiring test read only the
+        workflow, and the documentation guard above reads only whether a secret
+        is explained, not whether what it says is true of the wiring.
+
+        The cost of the disagreement falls on the one reader who cannot check
+        it -- whoever makes the replacement token, who grants it on the
+        repository the README names and finds the dispatch refused.
+
+        The expectation is read from the workflow rather than written here, so
+        this asserts agreement rather than restating a constant a rename would
+        have to be made in twice.
+        """
+        readme = (REPO_ROOT / "README.md").read_text(encoding="utf-8")
+        targets = {repo.removeprefix("hmbseaotter/") for repo in _dispatch_repos(_read_workflow())}
+        rows = _secret_rows(readme, "HARNESS_DISPATCH_TOKEN")
+        assert rows, (
+            "the README documents `HARNESS_DISPATCH_TOKEN` in no table row, so what the "
+            "token is granted on is nowhere a reader can find it beside the grant itself"
+        )
+        for row in rows:
+            assert _harness_names(row) == targets, (
+                f"the README says the token is granted on {sorted(_harness_names(row))} and "
+                f"the workflow dispatches to {sorted(targets)}; whoever replaces the token "
+                "follows the README and the dispatch is refused"
+            )
+
+    def test_the_readme_agreement_check_notices_the_snapshot_and_a_missing_row(self) -> None:
+        """The control, planted on the real README text.
+
+        Two plants: the snapshot named in the row in place of the working
+        repository -- the disagreement that actually stood -- and the row gone
+        altogether, which is the way an agreement check passes by having
+        nothing left to disagree with.
+        """
+        readme = (REPO_ROOT / "README.md").read_text(encoding="utf-8")
+        targets = {repo.removeprefix("hmbseaotter/") for repo in _dispatch_repos(_read_workflow())}
+        rows = _secret_rows(readme, "HARNESS_DISPATCH_TOKEN")
+        assert len(rows) == 1, f"{len(rows)} rows document the token, so no plant can be seen"
+        assert _harness_names(rows[0]) == targets, (
+            "the README already disagrees with the workflow, so no plant can be seen"
+        )
+
+        snapshot = rows[0].replace("voice-agent-eval-harness-private", "voice-agent-eval-harness")
+        assert _harness_names(snapshot) != targets, (
+            "naming the snapshot in the row left the check satisfied"
+        )
+
+        without = readme.replace(rows[0], "")
+        assert _secret_rows(without, "HARNESS_DISPATCH_TOKEN") == [], (
+            "removing the row left a row behind"
         )
 
     def test_the_decision_record_states_its_own_high_water_mark(self) -> None:
